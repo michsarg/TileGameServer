@@ -18,14 +18,29 @@
 import socket
 import sys
 import tiles
+import threading
 
+# these disrupt settings in client which we cant edit
+#PORT = 5050
+#SERVER = socket.gethostbyname(socket.gethostname())
+#address = (SERVER, PORT)
+
+# create a TCP/IP socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# listen on all network interfaces
+server_address = ('', 30020) #! specifies that the socket is reachable by any address the machine happens to have.
+sock.bind(server_address) #! bind the socket to a host and port
 
 def client_handler(connection, address):
+  
   host, port = address
   name = '{}:{}'.format(host, port)
 
-  idnum = 0
+  #need to increment idnums here 
+  idnum = port #was0
   live_idnums = [idnum]
+
 
   connection.send(tiles.MessageWelcome(idnum).pack())
   connection.send(tiles.MessagePlayerJoined(name, idnum).pack())
@@ -40,6 +55,7 @@ def client_handler(connection, address):
   board = tiles.Board()
 
   buffer = bytearray()
+
 
   while True:
     chunk = connection.recv(4096)
@@ -99,21 +115,20 @@ def client_handler(connection, address):
             
             # start next turn
             connection.send(tiles.MessagePlayerTurn(idnum).pack())
+  idnum += 1
 
 
-# create a TCP/IP socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# handles new connections and distributes them
+def start():
+  sock.listen(5)
+  print('listening on {}'.format(sock.getsockname()))
+  while True: #! infinite loop
+    # handle each new connection independently
+    connection, client_address = sock.accept()
+    #client_handler(connection, client_address)
+    thread = threading.Thread(target=client_handler, args=(connection, client_address))
+    thread.start()
+    print('received connection from {}'.format(client_address))
 
-# listen on all network interfaces
-server_address = ('', 30020)
-sock.bind(server_address)
-
-print('listening on {}'.format(sock.getsockname()))
-
-sock.listen(5)
-
-while True:
-  # handle each new connection independently
-  connection, client_address = sock.accept()
-  print('received connection from {}'.format(client_address))
-  client_handler(connection, client_address)
+print("[STARTING] server is starting")
+start()
