@@ -31,6 +31,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 # listen on all network interfaces
 server_address = ('', 30020) #! specifies that the socket is reachable by any address the machine happens to have.
 sock.bind(server_address) #! bind the socket to a host and port
+live_idnums = []
 
 def client_handler(connection, address):
   
@@ -38,8 +39,11 @@ def client_handler(connection, address):
   name = '{}:{}'.format(host, port)
 
   #need to increment idnums here 
-  idnum = port #was0
-  live_idnums = [idnum]
+  #idnum = port #was0
+  idnum = len(live_idnums)
+  live_idnums.append(idnum)
+
+  print('idnum: {}'.format(idnum))
 
 
   connection.send(tiles.MessageWelcome(idnum).pack())
@@ -115,7 +119,7 @@ def client_handler(connection, address):
             
             # start next turn
             connection.send(tiles.MessagePlayerTurn(idnum).pack())
-  idnum += 1
+
 
 
 # handles new connections and distributes them
