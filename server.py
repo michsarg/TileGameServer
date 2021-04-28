@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # CITS3002 2021 Assignment
 #
 # This file implements a basic server that allows a single client to play a
@@ -27,42 +29,58 @@ import threading
 
 # create a TCP/IP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
 # listen on all network interfaces
 server_address = ('', 30020) #! specifies that the socket is reachable by any address the machine happens to have.
 sock.bind(server_address) #! bind the socket to a host and port
-live_idnums = []
 
-def client_handler(connection, address):
-  
+# need to combine these in one data structure holding:
+# name, idnum
+# which is then held as an entry in a (?) list
+live_idnums = []
+threads = list()
+
+def client_handler(connection, address, idnum):
+  print('handling client {}'.format(address))
+
   host, port = address
   name = '{}:{}'.format(host, port)
 
-  #need to increment idnums here 
-  #idnum = port #was0
-  idnum = len(live_idnums)
-  live_idnums.append(idnum)
 
-  print('idnum: {}'.format(idnum))
+  
 
-
+  # Sent by the server to joining clients, to notify them of their idnum
   connection.send(tiles.MessageWelcome(idnum).pack())
-  connection.send(tiles.MessagePlayerJoined(name, idnum).pack())
-  connection.send(tiles.MessageGameStart().pack())
+  
+  #Sent by the server to all clients, when a new game has started.
+  if (len(live_idnums) == 1):
+    # Sent by the server to all clients, when a new client joins.
+    # This indicates the name and (unique) idnum for the new client.
+    connection.send(tiles.MessagePlayerJoined(name, idnum).pack())
+    connection.send(tiles.MessageGameStart().pack())
+  else:
+    # Sent by the server to all clients, when a new client joins.
+    # This indicates the name and (unique) idnum for the new client.
 
+    # for each client in live_idnums, send this!
+    connection.send(tiles.MessagePlayerJoined(name, idnum).pack())
+
+  # Sent by the server to a single client, to add a new tile to that client's hand
+  # refills the client's hand when theres an empty space (?)
   for _ in range(tiles.HAND_SIZE):
     tileid = tiles.get_random_tileid()
     connection.send(tiles.MessageAddTileToHand(tileid).pack())
   
+  # Sent by the server to all clients to indicate that a new turn has started
+  # this needs to be alternated
   connection.send(tiles.MessagePlayerTurn(idnum).pack())
   
-  board = tiles.Board()
 
+  # sets up a buffer for receiving chunks
   buffer = bytearray()
 
-
+  # infinte loop for receiving 
   while True:
-    chunk = connection.recv(4096)
+    chunk = connection.recv(4096) #checks correct chunk size
     if not chunk:
       print('client {} disconnected'.format(address))
       return
@@ -70,6 +88,10 @@ def client_handler(connection, address):
     buffer.extend(chunk)
 
     while True:
+      # Attempts to read and unpack a single message from the beginning of the
+      # provided bytearray. If successful, it returns (msg, number_of_bytes_consumed).
+      # If unable to read a message (because there are insufficient bytes), it returns
+      # (None, 0).
       msg, consumed = tiles.read_message_from_bytearray(buffer)
       if not consumed:
         break
@@ -85,7 +107,8 @@ def client_handler(connection, address):
           # notify client that placement was successful
           connection.send(msg.pack())
 
-          # check for token movement
+          # For all of the player ids in the live_idnums list, this method will move
+          # their player tokens if it is possible for them to move.
           positionupdates, eliminated = board.do_player_movement(live_idnums)
 
           for msg in positionupdates:
@@ -95,11 +118,11 @@ def client_handler(connection, address):
             connection.send(tiles.MessagePlayerEliminated(idnum).pack())
             return
 
-          # pickup a new tile
+          # Sent by the server to a single client, to add a new tile to that client's hand.
           tileid = tiles.get_random_tileid()
           connection.send(tiles.MessageAddTileToHand(tileid).pack())
 
-          # start next turn
+          # ent by the server to all clients to indicate that a new turn has started.
           connection.send(tiles.MessagePlayerTurn(idnum).pack())
 
       # sent by the player in the second turn, to choose their token's
@@ -124,15 +147,34 @@ def client_handler(connection, address):
 
 # handles new connections and distributes them
 def start():
-  sock.listen(5)
+  sock.listen()
   print('listening on {}'.format(sock.getsockname()))
+
   while True: #! infinite loop
     # handle each new connection independently
     connection, client_address = sock.accept()
-    #client_handler(connection, client_address)
-    thread = threading.Thread(target=client_handler, args=(connection, client_address))
-    thread.start()
-    print('received connection from {}'.format(client_address))
 
+    # increment idnums according to number of players
+    idnum = len(live_idnums)
+    # add new player idnum to list of live idnums
+    live_idnums.append(idnum)
+    print('idnum: {}'.format(idnum))
+
+    # NEED DATA STRUCTURE HERE TO RECORD idnum, connection, client_address
+    # then can update relevant methods in handler to send to all, not just one
+
+    #now passes idnum to new thread
+    thread = threading.Thread(target=client_handler, args=(connection, client_address, idnum))
+    print('starting new thread for {}'.format(client_address))
+    threads.append(thread)
+    thread.start()
+    #print('received connection from {}'.format(client_address))
+
+
+# MAIN
+# sets up a new board
+
+print('Setting up new shared board')
+board = tiles.Board()
 print("[STARTING] server is starting")
 start()
