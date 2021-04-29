@@ -35,31 +35,22 @@ clientdict = {}
 connectiondict = {}
 
 def client_handler(connection, address, idnum):
-  print('handling client {}'.format(address))
-  print('this thread is :{}'.format(threading.current_thread().getName()))
+  #print('handling client {}'.format(address))
+  #print('this thread is :{}'.format(threading.current_thread().getName()))
 
   host, port = address
   name = '{}:{}'.format(host, port)
 
-  x = clientdict.items()
-  print(x)
-  
 
   # Sent by the server to joining clients, to notify them of their idnum
   connection.send(tiles.MessageWelcome(idnum).pack())
   
-  # Sent by the server to all clients, when a new game has started.
-  # aka tell everyone ive connected
-  # problem: doesnt check for preexisting connects to add to self
-  for x in connectiondict:
-    connectiondict[x].send(tiles.MessagePlayerJoined(name, idnum).pack())
-  for x in clientdict:
-    connection.send(tiles.MessagePlayerJoined(str(clientdict[x]), x).pack())
-  
+  # Player join messages moved to server loop
 
-  # Autostart when one player
-  if (len(live_idnums) == 1):
+  # Autostart when two players
+  if (len(live_idnums) == 2):
     connection.send(tiles.MessageGameStart().pack())
+  
 
   # Sent by the server to a single client, to add a new tile to that client's hand
   # refills the client's hand when theres an empty space (?)
@@ -68,8 +59,10 @@ def client_handler(connection, address, idnum):
     connection.send(tiles.MessageAddTileToHand(tileid).pack())
   
   # Sent by the server to all clients to indicate that a new turn has started
+  # need to iterate through player turns
   for x in connectiondict:
     connectiondict[x].send(tiles.MessagePlayerTurn(idnum).pack())
+  #connection.send(tiles.MessagePlayerTurn(idnum).pack())
   
 
   # sets up a buffer for receiving chunks
@@ -77,8 +70,7 @@ def client_handler(connection, address, idnum):
 
   # infinte loop for receiving 
   while True:
-    print('live_idnums: {}'.format(len(live_idnums)))
-    chunk = connection.recv(4096) #checks correct chunk size
+    chunk = connection.recv(4096)
     if not chunk:
       print('client {} disconnected'.format(address))
       return
@@ -138,17 +130,17 @@ def client_handler(connection, address, idnum):
               connection.send(tiles.MessagePlayerEliminated(idnum).pack())
               return
             
-            # start next turn
+            # send to indicate a new turn has started - why is it here??
             connection.send(tiles.MessagePlayerTurn(idnum).pack())
 
 
 
 # handles new connections and distributes them
 def start():
-  sock.listen()
+  sock.listen(5)
   print('listening on {}'.format(sock.getsockname()))
 
-  while True: #! infinite loop
+  while True:
     # handle each new connection independently
     connclient = sock.accept()
     connection, client_address = connclient
@@ -162,14 +154,34 @@ def start():
     # update clientdict
     clientdict.update({idnum: client_address})
 
+    host, port = client_address
+    name = '{}:{}'.format(host, port)
+
+    # inform all existing players that this player has joined
+    # (this appears to NOT be sending)
+    for x in connectiondict:
+      # print('connection: {}'.format(connectiondict[x]))
+      print('informing existing players this player has joined:')
+      print('name:{} idnum:{}'.format(name, idnum))
+      print('{}'.format(connectiondict[x]))
+      connectiondict[x].send(tiles.MessagePlayerJoined(name, idnum).pack())
+
+    # inform present player of past
+    # (this appears to be working correctly)
+    connection = connectiondict.get(idnum)
+    for x in clientdict:
+      print('x = {} cliendict.get(x)={}'.format(str(clientdict.get(x)), int(x)))
+      connection.send(tiles.MessagePlayerJoined(str(clientdict.get(x)), int(x)).pack())
+
     thread = threading.Thread(target=client_handler, args=(connection, client_address, idnum))
     thread.start()
 
-
-# MAIN
-# sets up a new board
+#main
 
 print('Setting up new shared board')
 board = tiles.Board()
 print("[STARTING] server is starting")
+#loop_thread = threading.Thread(target=server_loop, args=())
+#loop_thread.start()
+print('ayo')
 start()

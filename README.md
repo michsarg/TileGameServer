@@ -1,5 +1,11 @@
 # cits3002project
 
+THINGS TO DO:
+
+    configure delaying start of game until sufficient number of players have joined
+
+
+
 Notes:
 
 In TCP, the client initiates a connection, and the server listens for and accepts a connection. Once connected, data can flow both ways.
@@ -45,3 +51,5 @@ Tiers:
     *  VARIOUS TASKS HERE
     ensure game continues for all players if a player goes afk
     *   VARIOUS TASKS HERE
+
+
