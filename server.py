@@ -22,26 +22,21 @@ import sys
 import tiles
 import threading
 
-# these disrupt settings in client which we cant edit
-#PORT = 5050
-#SERVER = socket.gethostbyname(socket.gethostname())
-#address = (SERVER, PORT)
 
-# create a TCP/IP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# listen on all network interfaces
-server_address = ('', 30020) #! specifies that the socket is reachable by any address the machine happens to have.
-sock.bind(server_address) #! bind the socket to a host and port
+server_address = ('', 30020) 
+sock.bind(server_address) 
 
-# need to combine these in one data structure holding:
-# name, idnum
-# which is then held as an entry in a (?) list
+# list of idnums
 live_idnums = []
-#stores idnum and names
+# key: idnum, value: names
 clientdict = {}
+# key: idnum, value: connection
+connectiondict = {}
 
 def client_handler(connection, address, idnum):
   print('handling client {}'.format(address))
+  print('this thread is :{}'.format(threading.current_thread().getName()))
 
   host, port = address
   name = '{}:{}'.format(host, port)
@@ -53,18 +48,18 @@ def client_handler(connection, address, idnum):
   # Sent by the server to joining clients, to notify them of their idnum
   connection.send(tiles.MessageWelcome(idnum).pack())
   
-  #Sent by the server to all clients, when a new game has started.
-  if (len(live_idnums) == 1):
-    # Sent by the server to all clients, when a new client joins.
-    # This indicates the name and (unique) idnum for the new client.
-    connection.send(tiles.MessagePlayerJoined(name, idnum).pack())
-    connection.send(tiles.MessageGameStart().pack())
-  else:
-    # Sent by the server to all clients, when a new client joins.
-    # This indicates the name and (unique) idnum for the new client.
+  # Sent by the server to all clients, when a new game has started.
+  # aka tell everyone ive connected
+  # problem: doesnt check for preexisting connects to add to self
+  for x in connectiondict:
+    connectiondict[x].send(tiles.MessagePlayerJoined(name, idnum).pack())
+  for x in clientdict:
+    connection.send(tiles.MessagePlayerJoined(str(clientdict[x]), x).pack())
+  
 
-    # for each client in live_idnums, send this!
-    connection.send(tiles.MessagePlayerJoined(name, idnum).pack())
+  # Autostart when one player
+  if (len(live_idnums) == 1):
+    connection.send(tiles.MessageGameStart().pack())
 
   # Sent by the server to a single client, to add a new tile to that client's hand
   # refills the client's hand when theres an empty space (?)
@@ -73,8 +68,8 @@ def client_handler(connection, address, idnum):
     connection.send(tiles.MessageAddTileToHand(tileid).pack())
   
   # Sent by the server to all clients to indicate that a new turn has started
-  # this needs to be alternated
-  connection.send(tiles.MessagePlayerTurn(idnum).pack())
+  for x in connectiondict:
+    connectiondict[x].send(tiles.MessagePlayerTurn(idnum).pack())
   
 
   # sets up a buffer for receiving chunks
@@ -82,6 +77,7 @@ def client_handler(connection, address, idnum):
 
   # infinte loop for receiving 
   while True:
+    print('live_idnums: {}'.format(len(live_idnums)))
     chunk = connection.recv(4096) #checks correct chunk size
     if not chunk:
       print('client {} disconnected'.format(address))
@@ -154,26 +150,20 @@ def start():
 
   while True: #! infinite loop
     # handle each new connection independently
-    connection, client_address = sock.accept()
+    connclient = sock.accept()
+    connection, client_address = connclient
 
     # increment idnums according to number of players
     idnum = len(live_idnums)
     # add new player idnum to list of live idnums
     live_idnums.append(idnum)
-    print('idnum: {}'.format(idnum))
-
-    # NEED DATA STRUCTURE HERE TO RECORD idnum, connection, client_address
-    # then can update relevant methods in handler to send to all, not just one
-
-    #now passes idnum to new thread
-    thread = threading.Thread(target=client_handler, args=(connection, client_address, idnum))
-    print('starting new thread for {}'.format(client_address))
-
+    # update connectiondict
+    connectiondict.update({idnum: connection})
     # update clientdict
     clientdict.update({idnum: client_address})
 
+    thread = threading.Thread(target=client_handler, args=(connection, client_address, idnum))
     thread.start()
-    #print('received connection from {}'.format(client_address))
 
 
 # MAIN
