@@ -37,7 +37,6 @@ sock.bind(server_address) #! bind the socket to a host and port
 # name, idnum
 # which is then held as an entry in a (?) list
 live_idnums = []
-threads = list()
 #stores idnum and names
 clientdict = {}
 
@@ -169,12 +168,9 @@ def start():
     #now passes idnum to new thread
     thread = threading.Thread(target=client_handler, args=(connection, client_address, idnum))
     print('starting new thread for {}'.format(client_address))
-    threads.append(thread)
 
     # update clientdict
-    host, port = client_address
-    name = '{}:{}'.format(host, port)
-    clientdict.update({idnum: name})
+    clientdict.update({idnum: client_address})
 
     thread.start()
     #print('received connection from {}'.format(client_address))
