@@ -3,7 +3,8 @@
 THINGS TO DO:
 
     configure delaying start of game until sufficient number of players have joined
-
+    work out turn taking - currently non functional and sitting in client_handler
+    implement event handling???
 
 
 Notes:
