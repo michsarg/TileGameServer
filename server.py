@@ -18,12 +18,14 @@
 import socket
 import sys
 import tiles
+import random
+import copy
 
 live_idnums = []
 client_data = {}
 global_board = tiles.Board()
-
-
+#turn_order = copy.deepcopy(live_idnums)
+turn_count = 0
 
 def add_client(connection, address):
   host, port = address
@@ -46,47 +48,63 @@ def add_client(connection, address):
   return idnum
 
 def setup_game():
+  print('Setting up game')
 
-  for idnums in client_data: # will cycle 0 and 1
-    
-    print('TEST')
-    print(client_data[idnums]["connection"])
-    # Moved to add client
-    # Message Welcome
-    #client_data[idnums]["connection"].send(tiles.MessageWelcome(idnums).pack())
-    
-    
-    # Message PlayerJoined
-    client_data[idnums]["connection"].send(tiles.MessageWelcome(idnums).pack())
-
-    # Message AddTileToHand
-    for _ in range(tiles.HAND_SIZE):
-      tileid = tiles.get_random_tileid()
-      client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+  #setup game
   
+  # send joining message
+  for idnum_sender in client_data:
+    for idnum_receiver in client_data:
+      if idnum_sender != idnum_receiver:
+        idnum = idnum_sender
+        name = client_data[idnum_sender]["name"]
+        client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(name, idnum).pack())
+
+  # sent start message
   for idnums in client_data: # will cycle 0 and 1
     # Message GameStart
     client_data[idnums]["connection"].send(tiles.MessageGameStart().pack())
+
+  # distribute first tiles to players
+  for idnums in client_data:
+    print('sending tiles')
+    for _ in range(tiles.HAND_SIZE):
+      tileid = tiles.get_random_tileid()
+      client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+
+
+def progress_turn():
+  #determine whos turn it is
+  global turn_count
+  idnum = turn_count % 2
+  #inform all players of turn
+  for idnums in client_data: # will cycle 0 and 1
+    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(idnum).pack())
+  #update turn counter
+  turn_count += 1
 
 
 def client_handler(connection, address):
 
   idnum = add_client(connection, address)
-  print('idnum returned to client_handler: {}'.format(idnum))
+  
   # start game when correct
   if len(live_idnums) == 2: 
     setup_game()
   else:
     listen()
+    return
 
-  #setup player turns
-    connection.send(tiles.MessagePlayerTurn(idnum).pack())
+  #start the first turn
+  progress_turn()
+
   
   ###
 
-  #board created outside
-  #board = tiles.Board()
+  #link global board to local
   board = global_board
+
+  # below here in client_handler is unedited
 
   buffer = bytearray()
 
@@ -147,7 +165,8 @@ def client_handler(connection, address):
               return
             
             # start next turn
-            connection.send(tiles.MessagePlayerTurn(idnum).pack())
+            # connection.send(tiles.MessagePlayerTurn(idnum).pack())
+            progress_turn()
 
 
 def listen():
