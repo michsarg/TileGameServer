@@ -53,4 +53,24 @@ Tiers:
     ensure game continues for all players if a player goes afk
     *   VARIOUS TASKS HERE
 
+::::::::GUIDE:::::
+def client_handler(clients):
 
+    # create dictionary of client data
+    client_data = get_client_data(clients)
+
+    # get a list of the idnums of players in the game
+    live_idnums = list(client_data.keys())
+
+    # send the game setup messages to all clients
+    send_game_setup_messages(client_data, live_idnums)
+
+    # add tiles to all clients hands
+    add_initial_tiles_to_clients(get_connections(client_data))
+
+    # creat the turn order
+    turn_order = copy.deepcopy(live_idnums)
+    random.shuffle(turn_order)
+    print_turn_order(turn_order)
+
+    # CREATE BOARD BEFORE TURN LOGIC

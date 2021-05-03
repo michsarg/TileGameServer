@@ -3,6 +3,12 @@ Tier 2
 -   extend your server so if there are enough 
     clients connected when a game finishes, it
     starts a new game
+    - all conected clients will be in live_idnums
+    - of those, playing the game will be in player_idnums
+    - game_in_progress boolean shows if game is active
+    - game_over function removes winner, ends game, attempts restart
+    - BUG:  if more than req players join before it starts
+            it progresses as one player game
 
 -   your server should be handle games of up
     to four players

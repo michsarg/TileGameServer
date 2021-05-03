@@ -21,11 +21,14 @@ import tiles
 import random
 import copy
 
+REQ_PLAYERS = 2
+
 live_idnums = []
+player_idnums = []
 client_data = {}
 global_board = tiles.Board()
-turn_count = 0
 turn_idnum = 0
+game_in_progress = False
 
 def add_client(connection, address):
   host, port = address
@@ -47,9 +50,21 @@ def add_client(connection, address):
   return idnum
 
 def setup_game():
-  
+  game_in_progress = True
+
+  #select players to add to game
+  chosen_idnums = copy.deepcopy(live_idnums)
+  random.shuffle(chosen_idnums)
+  for chosen in range(0, (REQ_PLAYERS)):
+    player_idnums.append(chosen_idnums[chosen])
+
+  print('play order: {}'.format(player_idnums))
+  # NEED TO GO THROUGH ALL CODE TO IMPLEMENT PLAYER ID NUMS
+  # IF IT IS RELATED TO PLAYING THE NAME, REPLACE WITH PLAYER IDNUMS
+  # IF IT IS RELATED TO SENDING UPDATES ABOUT THE GAME, ALL IDNUMS SHOULD GET THAT
+
   # send joining message
-  for idnum_sender in client_data:
+  for idnum_sender in player_idnums:
     for idnum_receiver in client_data:
       if idnum_sender != idnum_receiver:
         idnum = idnum_sender
@@ -62,41 +77,57 @@ def setup_game():
     client_data[idnums]["connection"].send(tiles.MessageGameStart().pack())
 
   # distribute first tiles to players
-  for idnums in client_data:
+  for idnums in player_idnums:
     print('sending tiles')
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
       client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
 
-  # set up turns
-  # global turn_order
-  # turn_order = copy.deepcopy(live_idnums)
-  # random.shuffle(turn_order)
 
 def progress_turn():
   #determine whos turn it is
-  global turn_count
   global live_idnums
   global turn_idnum 
 
-  turn_idnum = turn_count % len(live_idnums)
+
+  #protects against loss of order with player elimination
+  for index in range(0, len(player_idnums)):
+    if player_idnums[index] == turn_idnum:
+      turn_idnum = player_idnums[(index+1)%len(player_idnums)]
+      break
+  #this is not progressing
+  print('turn_idnum: {}'.format(turn_idnum))
 
   for idnums in client_data:
     # Announce to every client it is this players turn
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
-  turn_count += 1
+  
 
+def game_over():
+  # remove wininer, end game, attempt restart
+  #
+  # game_in_progress = False
+  #
+  # if live_idnums >= REQ_PLAYERS:
+  #   randomly select  
+  #
+  # check_start_conditions()
+  pass
 
-def client_handler(connection, address):
-
-  idnum = add_client(connection, address)
-  # start game when correct number of connections
-  if len(live_idnums) == 2: 
+# this needs to be checked when a game ends
+# and when a new player is added
+def check_start_conditions():
+  if (len(live_idnums) >= REQ_PLAYERS) & (game_in_progress == False):
     setup_game()
     run_game()
   else:
+    #wait for more players if not enough are live
     listen()
-    return
+
+def client_handler(connection, address):
+  add_client(connection, address)
+  check_start_conditions()
+
 
 def update_and_notify():
   board = global_board
@@ -114,18 +145,28 @@ def update_and_notify():
       for idnums in client_data:
         client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(idnum_elim).pack())
         return
-
+  
+  # update player_idnums to remove eliminated
+  for idnum_elim in eliminated:
+    if idnum_elim in player_idnums:
+      player_idnums.remove(idnum_elim)
+  
+  # check if a player has won the game
+  if player_idnums == 1:
+    print('GAME OVER BROS')
 
 def run_game():
   board = global_board
-  global turn_count
+  
   #start the first turn
+  turn_id = player_idnums[0]
   progress_turn()
 
   buffer = bytearray()
   #infinte loop begins for processing received chunks
   while True:
 
+    # ignore messages if its not the players turn
     for idnums in client_data:
       if idnums == turn_idnum:
         chunk = client_data[idnums]["connection"].recv(4096)
@@ -145,8 +186,7 @@ def run_game():
 
       print('received message {}'.format(msg))
 
-      # sent by the player to put a tile onto the board (in all turns except
-      # their second)
+      # sent by the player to put a tile onto the board (all turns except second)
       if isinstance(msg, tiles.MessagePlaceTile):
         if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
 
