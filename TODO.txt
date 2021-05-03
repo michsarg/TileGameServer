@@ -1,0 +1,15 @@
+Tier 2
+
+-   extend your server so if there are enough 
+    clients connected when a game finishes, it
+    starts a new game
+
+-   your server should be handle games of up
+    to four players
+
+-   the four players should be randomly picked
+
+-   all spectators should receive game updates
+
+-   messages from spectators or eliminated players
+    should be ignored
