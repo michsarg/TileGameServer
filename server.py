@@ -21,14 +21,17 @@ import tiles
 import random
 import copy
 
-REQ_PLAYERS = 2
+REQ_PLAYERS = 4
 
-live_idnums = []
-player_idnums = []
+live_idnums = [] # all connected clients
+turn_order = [] # clients in this round & their order
 client_data = {}
 global_board = tiles.Board()
 turn_idnum = 0
+turn_index = 0
 game_in_progress = False
+eliminated = []
+
 
 def add_client(connection, address):
   host, port = address
@@ -50,34 +53,30 @@ def add_client(connection, address):
   return idnum
 
 def setup_game():
+  global turn_order
   game_in_progress = True
 
   #select players to add to game
-  chosen_idnums = copy.deepcopy(live_idnums)
-  random.shuffle(chosen_idnums)
-  for chosen in range(0, (REQ_PLAYERS)):
-    player_idnums.append(chosen_idnums[chosen])
+  turn_order = copy.deepcopy(live_idnums)
+  turn_order[:REQ_PLAYERS]
+  random.shuffle(turn_order)
 
-  print('play order: {}'.format(player_idnums))
-  # NEED TO GO THROUGH ALL CODE TO IMPLEMENT PLAYER ID NUMS
-  # IF IT IS RELATED TO PLAYING THE NAME, REPLACE WITH PLAYER IDNUMS
-  # IF IT IS RELATED TO SENDING UPDATES ABOUT THE GAME, ALL IDNUMS SHOULD GET THAT
+  print('play order: {}'.format(turn_order))
 
   # send joining message
-  for idnum_sender in player_idnums:
+  for idnum_sent in turn_order:
     for idnum_receiver in client_data:
-      if idnum_sender != idnum_receiver:
-        idnum = idnum_sender
-        name = client_data[idnum_sender]["name"]
+      if idnum_sent != idnum_receiver:
+        idnum = idnum_sent
+        name = client_data[idnum_sent]["name"]
         client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(name, idnum).pack())
 
   # sent start message
-  for idnums in client_data: # will cycle 0 and 1
-    # Message GameStart
+  for idnums in client_data:
     client_data[idnums]["connection"].send(tiles.MessageGameStart().pack())
 
   # distribute first tiles to players
-  for idnums in player_idnums:
+  for idnums in turn_order:
     print('sending tiles')
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
@@ -87,31 +86,32 @@ def setup_game():
 def progress_turn():
   #determine whos turn it is
   global live_idnums
-  global turn_idnum 
+  global turn_idnum # players will be notified this player can make next turn
+  global turn_order # includes all players; those elinated are still in here
+  global eliminated
 
+  for index in range(len(turn_order)):
+    # find the index that matches turn_idnum
+    if turn_order[index] == turn_idnum:
+      if (turn_order[(index+1)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+1)%len(turn_order)]
+        break
+      elif (turn_order[(index+2)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+2)%len(turn_order)]
+        break
+      elif (turn_order[(index+3)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+3)%len(turn_order)]
+        break
+      elif (turn_order[(index+4)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+4)%len(turn_order)]
+        break
 
-  #protects against loss of order with player elimination
-  for index in range(0, len(player_idnums)):
-    if player_idnums[index] == turn_idnum:
-      turn_idnum = player_idnums[(index+1)%len(player_idnums)]
-      break
-  #this is not progressing
-  print('turn_idnum: {}'.format(turn_idnum))
-
-  for idnums in client_data:
+  for idnums in live_idnums:
     # Announce to every client it is this players turn
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
   
 
 def game_over():
-  # remove wininer, end game, attempt restart
-  #
-  # game_in_progress = False
-  #
-  # if live_idnums >= REQ_PLAYERS:
-  #   randomly select  
-  #
-  # check_start_conditions()
   pass
 
 # this needs to be checked when a game ends
@@ -130,40 +130,51 @@ def client_handler(connection, address):
 
 
 def update_and_notify():
+  global client_data
   board = global_board
+  global eliminated
+  global live_idnums
   # update the board with token positions & determine any eliminations
   positionupdates, eliminated = board.do_player_movement(live_idnums)
 
+  # print('eliminated')
+  # print(eliminated)
+
   # notify all clients of new token positions on board
-  for idnums in client_data:
+  for idnums in live_idnums: # change to only live actors
     for msg in positionupdates:
       client_data[idnums]["connection"].send(msg.pack())
+
   
-  # notify all clients of elminiated players
-  for idnum_elim in client_data:
-    if idnum_elim in eliminated:
-      for idnums in client_data:
-        client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(idnum_elim).pack())
-        return
-  
-  # update player_idnums to remove eliminated
-  for idnum_elim in eliminated:
-    if idnum_elim in player_idnums:
-      player_idnums.remove(idnum_elim)
-  
+  # notify all clients of eliminated players
+  if len(eliminated) < 0:
+    for idnums in live_idnums:
+      for elim in eliminated:
+        client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
+  #need to capture new elims here and send out messsage!!!!!
+  #otherwise its nto registering??
+
   # check if a player has won the game
-  if player_idnums == 1:
+  if (len(turn_order)-len(eliminated)) == 1:
     print('GAME OVER BROS')
 
 def run_game():
+
+  global turn_order
   board = global_board
-  
+  global turn_idnum
+
+
   #start the first turn
-  turn_id = player_idnums[0]
-  progress_turn()
+  turn_idnum = turn_order[0]
+  for idnums in client_data:
+    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
   buffer = bytearray()
-  #infinte loop begins for processing received chunks
+
+  print('upon entering infinte loop, turn_idnum = {}'.format(turn_idnum))
+  # Enter infinte loop for processing received chunks
+
   while True:
 
     # ignore messages if its not the players turn
@@ -191,7 +202,7 @@ def run_game():
         if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
 
           # inform all clients of newly placed tile
-          for idnums in client_data:
+          for idnums in live_idnums:
             client_data[idnums]["connection"].send(msg.pack())
 
           # update board and notify clients
