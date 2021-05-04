@@ -26,14 +26,23 @@ REQ_PLAYERS = 4
 live_idnums = [] # all connected clients
 turn_order = [] # clients in this round & their order
 client_data = {}
-global_board = tiles.Board()
+board = tiles.Board()
 turn_idnum = 0
 turn_index = 0
 game_in_progress = False
 eliminated = []
 
 
-def add_client(connection, address):
+def listen():
+  print('listening on {}'.format(sock.getsockname()))
+  sock.listen(5)
+  while True:
+    connection, client_address = sock.accept()
+    print('received connection from {}'.format(client_address))
+    client_handler(connection, client_address)
+
+
+def client_handler(connection, address):
   host, port = address
   name = '{}:{}'.format(host, port)
 
@@ -48,9 +57,17 @@ def add_client(connection, address):
   "name" : name
   }
 
-  #send welcome message
   connection.send(tiles.MessageWelcome(idnum).pack())
-  return idnum
+  check_start_conditions()
+
+
+def check_start_conditions():
+  if (len(live_idnums) >= REQ_PLAYERS) & (game_in_progress == False):
+    setup_game()
+    run_game()
+  else:
+    listen()
+
 
 def setup_game():
   global turn_order
@@ -83,87 +100,10 @@ def setup_game():
       client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
 
 
-def progress_turn():
-  #determine whos turn it is
-  global live_idnums
-  global turn_idnum # players will be notified this player can make next turn
-  global turn_order # includes all players; those elinated are still in here
-  global eliminated
-
-  for index in range(len(turn_order)):
-    # find the index that matches turn_idnum
-    if turn_order[index] == turn_idnum:
-      if (turn_order[(index+1)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+1)%len(turn_order)]
-        break
-      elif (turn_order[(index+2)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+2)%len(turn_order)]
-        break
-      elif (turn_order[(index+3)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+3)%len(turn_order)]
-        break
-      elif (turn_order[(index+4)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+4)%len(turn_order)]
-        break
-
-  for idnums in live_idnums:
-    # Announce to every client it is this players turn
-    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
-  
-
-def game_over():
-  pass
-
-# this needs to be checked when a game ends
-# and when a new player is added
-def check_start_conditions():
-  if (len(live_idnums) >= REQ_PLAYERS) & (game_in_progress == False):
-    setup_game()
-    run_game()
-  else:
-    #wait for more players if not enough are live
-    listen()
-
-def client_handler(connection, address):
-  add_client(connection, address)
-  check_start_conditions()
-
-
-def update_and_notify():
-  global client_data
-  board = global_board
-  global eliminated
-  global live_idnums
-  # update the board with token positions & determine any eliminations
-  positionupdates, eliminated = board.do_player_movement(live_idnums)
-
-  # print('eliminated')
-  # print(eliminated)
-
-  # notify all clients of new token positions on board
-  for idnums in live_idnums: # change to only live actors
-    for msg in positionupdates:
-      client_data[idnums]["connection"].send(msg.pack())
-
-  
-  # notify all clients of eliminated players
-  if len(eliminated) < 0:
-    for idnums in live_idnums:
-      for elim in eliminated:
-        client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
-  #need to capture new elims here and send out messsage!!!!!
-  #otherwise its nto registering??
-
-  # check if a player has won the game
-  if (len(turn_order)-len(eliminated)) == 1:
-    print('GAME OVER BROS')
-
 def run_game():
-
+  global board
   global turn_order
-  board = global_board
   global turn_idnum
-
 
   #start the first turn
   turn_idnum = turn_order[0]
@@ -227,20 +167,70 @@ def run_game():
             progress_turn()
 
 
-def listen():
-  print('listening on {}'.format(sock.getsockname()))
-  sock.listen(5)
-  while True:
-    connection, client_address = sock.accept()
-    print('received connection from {}'.format(client_address))
-    client_handler(connection, client_address)
+def update_and_notify():
+  global client_data
+  global board
+  global eliminated
+  global live_idnums
+  # update the board with token positions & determine any eliminations
+  positionupdates, eliminated = board.do_player_movement(live_idnums)
+
+  # print('eliminated')
+  # print(eliminated)
+
+  # notify all clients of new token positions on board
+  for idnums in live_idnums: # change to only live actors
+    for msg in positionupdates:
+      client_data[idnums]["connection"].send(msg.pack())
+
+  # notify all clients of eliminated players
+  if len(eliminated) < 0:
+    for idnums in live_idnums:
+      for elim in eliminated:
+        client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
+        #DONT KNOW WHY BUT ELIMINATION MSGS ARENT BEING RECEIVED
+        #IS THIS BECAUSE IT ONLY RECEIVES A MESSAGE WHEN ITS THE PLAYERS TURN???
+
+  # check if a player has won the game
+  if (len(turn_order)-len(eliminated)) == 1:
+    print('GAME OVER BROS')
+
+
+def progress_turn():
+  #determine whos turn it is
+  global live_idnums
+  global turn_idnum # players will be notified this player can make next turn
+  global turn_order # includes all players; those elimated are still in here
+  global eliminated
+
+  # this will successfully progress the game, skipping elim players in turn order
+  for index in range(len(turn_order)):
+    # find the index that matches turn_idnum
+    if turn_order[index] == turn_idnum:
+      if (turn_order[(index+1)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+1)%len(turn_order)]
+        break
+      elif (turn_order[(index+2)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+2)%len(turn_order)]
+        break
+      elif (turn_order[(index+3)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+3)%len(turn_order)]
+        break
+      elif (turn_order[(index+4)%len(turn_order)] not in eliminated):
+        turn_idnum = turn_order[(index+4)%len(turn_order)]
+        break
+
+  for idnums in live_idnums:
+    # Announce to every client it is this players turn
+    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+
+
+def game_over():
+  pass
+
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_address = ('', 30020)
 sock.bind(server_address)
 listen()
-
-
-
-
