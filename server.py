@@ -23,7 +23,7 @@ import copy
 
 REQ_PLAYERS = 4
 
-live_idnums = [] # WRONG: all connected clients THESE ARE ONLY THE ACTIVE PLAYERS
+live_idnums = [] # list of players connected and in the game now
 connected_idnums = [] # all connected players
 turn_order = [] # clients in this round & their order
 client_data = {}
@@ -47,8 +47,8 @@ def client_handler(connection, address):
   host, port = address
   name = '{}:{}'.format(host, port)
 
-  idnum = len(live_idnums)
-  live_idnums.append(idnum)
+  idnum = len(connected_idnums)
+  connected_idnums.append(idnum)
   
   client_data[idnum] = {
   "connection" : connection,
@@ -63,7 +63,7 @@ def client_handler(connection, address):
 
 
 def check_start_conditions():
-  if (len(live_idnums) >= REQ_PLAYERS) & (game_in_progress == False):
+  if (len(connected_idnums) >= REQ_PLAYERS) & (game_in_progress == False):
     setup_game()
     run_game()
   else:
@@ -72,29 +72,32 @@ def check_start_conditions():
 
 def setup_game():
   global turn_order
+  global live_idnums
+  global connected_idnums
   game_in_progress = True
 
   #select players to add to game
-  turn_order = copy.deepcopy(live_idnums)
+  turn_order = copy.deepcopy(connected_idnums)
   turn_order[:REQ_PLAYERS]
+  live_idnums = copy.deepcopy(turn_order)
   random.shuffle(turn_order)
 
   print('play order: {}'.format(turn_order))
 
   # send joining message
-  for idnum_sent in turn_order:
-    for idnum_receiver in client_data:
+  for idnum_sent in live_idnums:
+    for idnum_receiver in connected_idnums:
       if idnum_sent != idnum_receiver:
         idnum = idnum_sent
         name = client_data[idnum_sent]["name"]
         client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(name, idnum).pack())
 
   # sent start message
-  for idnums in client_data:
+  for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessageGameStart().pack())
 
   # distribute first tiles to players
-  for idnums in turn_order:
+  for idnums in live_idnums:
     print('sending tiles')
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
@@ -108,18 +111,16 @@ def run_game():
 
   #start the first turn
   turn_idnum = turn_order[0]
-  for idnums in client_data:
+  for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
   buffer = bytearray()
 
-  print('upon entering infinte loop, turn_idnum = {}'.format(turn_idnum))
   # Enter infinte loop for processing received chunks
-
   while True:
 
     # ignore messages if its not the players turn
-    for idnums in client_data:
+    for idnums in connected_idnums:
       if idnums == turn_idnum:
         chunk = client_data[idnums]["connection"].recv(4096)
         print('data received from {}'.format(idnums))
@@ -143,7 +144,7 @@ def run_game():
         if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
 
           # inform all clients of newly placed tile
-          for idnums in live_idnums:
+          for idnums in connected_idnums:
             client_data[idnums]["connection"].send(msg.pack())
 
           # update board and notify clients
@@ -174,30 +175,22 @@ def update_and_notify():
   global eliminated
   global live_idnums
 
-  moving_players = copy.deepcopy(turn_order)
-  for elim in eliminated:
-    for mov in moving_players:
-      if elim == mov:
-        moving_players.remove(mov)
-
-  # update the board with token positions & determine any eliminations
-  positionupdates, eliminated = board.do_player_movement(moving_players)
-
-  # print('eliminated')
-  # print(eliminated)
+  prev_eliminated = copy.deepcopy(eliminated)
+  positionupdates, eliminated = board.do_player_movement(live_idnums)
 
   # notify all clients of new token positions on board
-  for idnums in live_idnums: # change to only live actors
+  for idnums in connected_idnums:
     for msg in positionupdates:
       client_data[idnums]["connection"].send(msg.pack())
 
   # notify all clients of eliminated players
   if len(eliminated) > 0:
-    for idnums in live_idnums:
+      # check for eliminated not in prev eliminated
       for elim in eliminated:
-        client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
-        #DONT KNOW WHY BUT ELIMINATION MSGS ARENT BEING RECEIVED
-        #IS THIS BECAUSE IT ONLY RECEIVES A MESSAGE WHEN ITS THE PLAYERS TURN???
+        if elim not in prev_eliminated:
+          # all connected to be notified
+          for idnums in connected_idnums:
+            client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
 
   # check if a player has won the game
   if (len(turn_order)-len(eliminated)) == 1:
@@ -228,7 +221,7 @@ def progress_turn():
         turn_idnum = turn_order[(index+4)%len(turn_order)]
         break
 
-  for idnums in live_idnums:
+  for idnums in connected_idnums:
     # Announce to every client it is this players turn
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
