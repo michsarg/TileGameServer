@@ -20,6 +20,7 @@ import sys
 import tiles
 import random
 import copy
+import time
 
 REQ_PLAYERS = 4
 
@@ -29,7 +30,6 @@ turn_order = [] # clients in this round & their order
 client_data = {}
 board = tiles.Board()
 turn_idnum = 0
-turn_index = 0
 game_in_progress = False
 eliminated = []
 
@@ -74,6 +74,7 @@ def setup_game():
   global turn_order
   global live_idnums
   global connected_idnums
+  global game_in_progress
   game_in_progress = True
 
   #select players to add to game
@@ -194,7 +195,7 @@ def update_and_notify():
 
   # check if a player has won the game
   if (len(turn_order)-len(eliminated)) == 1:
-    print('GAME OVER BROS')
+    game_over()
 
 
 def progress_turn():
@@ -227,8 +228,26 @@ def progress_turn():
 
 
 def game_over():
-  pass
+  print('GAME OVER BROS')
+  time.sleep(5)
+  # reset all global variables related to game
+  reset_game_state()
+  check_start_conditions()
 
+def reset_game_state():
+  global live_idnums
+  global turn_order
+  global eliminated
+  global board
+  global turn_idnum
+  global game_in_progress
+
+  live_idnums.clear()
+  turn_order.clear()
+  eliminated.clear()
+  turn_idnum = 0
+  board.reset()
+  game_in_progress = False
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
