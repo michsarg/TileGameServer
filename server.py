@@ -21,6 +21,7 @@ import tiles
 import random
 import copy
 import time
+import threading
 
 REQ_PLAYERS = 4
 
@@ -44,6 +45,8 @@ def listen():
 
 
 def client_handler(connection, address):
+  global client_data
+
   host, port = address
   name = '{}:{}'.format(host, port)
 
@@ -58,16 +61,28 @@ def client_handler(connection, address):
   "name" : name
   }
 
+  # inform other players of this one
+
+  for idnum_receiver in connected_idnums:
+        if idnum_receiver != idnum:
+          client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
+
+  # send welcome message
   connection.send(tiles.MessageWelcome(idnum).pack())
-  check_start_conditions()
+
+  # inform this player of others
+  for idnum_receiver in connected_idnums:
+    if idnum_receiver != idnum:
+      client_data[idnum]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack())
 
 
 def check_start_conditions():
-  if (len(connected_idnums) >= REQ_PLAYERS) & (game_in_progress == False):
-    setup_game()
-    run_game()
-  else:
-    listen()
+
+  while game_in_progress == False:
+    if (len(connected_idnums) >= REQ_PLAYERS):
+      setup_game()
+      run_game()
+
 
 
 def setup_game():
@@ -79,19 +94,30 @@ def setup_game():
 
   #select players to add to game
   turn_order = copy.deepcopy(connected_idnums)
-  turn_order[:REQ_PLAYERS]
-  live_idnums = copy.deepcopy(turn_order)
+  print('turn order after connected copy: {}'.format(turn_order))
   random.shuffle(turn_order)
+  print('turn order after shuffle: {}'.format(turn_order))
+  while len(turn_order) > REQ_PLAYERS:
+    turn_order.pop()
+  print('turn order after crop: {}'.format(turn_order))
+  live_idnums = copy.deepcopy(turn_order)
+  print('live idnums after copy turn order: {}'.format(live_idnums))
+
+  #populate live_idnums
+
+
+
 
   print('play order: {}'.format(turn_order))
 
+  # MOVED BACKWARDS TO CLIENT HANDLER
   # send joining message
-  for idnum_sent in live_idnums:
-    for idnum_receiver in connected_idnums:
-      if idnum_sent != idnum_receiver:
-        idnum = idnum_sent
-        name = client_data[idnum_sent]["name"]
-        client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(name, idnum).pack())
+  # for idnum_sent in live_idnums:
+  #   for idnum_receiver in connected_idnums:
+  #     if idnum_sent != idnum_receiver:
+  #       idnum = idnum_sent
+  #       name = client_data[idnum_sent]["name"]
+  #       client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(name, idnum).pack())
 
   # sent start message
   for idnums in connected_idnums:
@@ -249,8 +275,14 @@ def reset_game_state():
   board.reset()
   game_in_progress = False
 
+def meep():
+  while True:
+    print('meep')
+    time.sleep(5)
+
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_address = ('', 30020)
 sock.bind(server_address)
-listen()
+threading.Thread(target=listen).start()
+threading.Thread(target=check_start_conditions).start()
