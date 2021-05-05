@@ -28,12 +28,14 @@ REQ_PLAYERS = 4
 
 live_idnums = [] # list of players connected and in the game now
 connected_idnums = [] # all connected players
+disconnected_idnums = []
 turn_order = [] # clients in this round & their order
 client_data = {}
 board = tiles.Board()
 turn_idnum = 0
 game_in_progress = False
 eliminated = []
+player_count = 0
 
 
 def listen():
@@ -47,11 +49,13 @@ def listen():
 
 def client_handler(connection, address):
   global client_data
+  global player_count
 
   host, port = address
   name = '{}:{}'.format(host, port)
 
-  idnum = len(connected_idnums)
+  idnum = player_count
+  player_count += 1
   connected_idnums.append(idnum)
   
   client_data[idnum] = {
@@ -236,18 +240,22 @@ def progress_turn():
   for index in range(len(turn_order)):
     # find the index that matches turn_idnum
     if turn_order[index] == turn_idnum:
-      if (turn_order[(index+1)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+1)%len(turn_order)]
-        break
-      elif (turn_order[(index+2)%len(turn_order)] not in eliminated):
+      if (turn_order[(index+1)%len(turn_order)] not in eliminated \
+        and turn_order[(index+1)%len(turn_order)] not in disconnected_idnums):
+          turn_idnum = turn_order[(index+1)%len(turn_order)]
+          break
+      elif (turn_order[(index+2)%len(turn_order)] not in eliminated \
+        and turn_order[(index+2)%len(turn_order)] not in disconnected_idnums):
         turn_idnum = turn_order[(index+2)%len(turn_order)]
         break
-      elif (turn_order[(index+3)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+3)%len(turn_order)]
-        break
-      elif (turn_order[(index+4)%len(turn_order)] not in eliminated):
-        turn_idnum = turn_order[(index+4)%len(turn_order)]
-        break
+      elif (turn_order[(index+3)%len(turn_order)] not in eliminated \
+        and turn_order[(index+3)%len(turn_order)] not in disconnected_idnums):
+          turn_idnum = turn_order[(index+3)%len(turn_order)]
+          break
+      elif (turn_order[(index+4)%len(turn_order)] not in eliminated \
+        and turn_order[(index+4)%len(turn_order)] not in disconnected_idnums):
+          turn_idnum = turn_order[(index+4)%len(turn_order)]
+          break
 
   for idnums in connected_idnums:
     # Announce to every client it is this players turn
@@ -280,54 +288,62 @@ def check_connections():
   global connected_idnums
   global client_data
   global sock
+  global disconnected_idnums
+  sock_list = []
+  print('check connections starting')
 
   while True:
-    time.sleep(5)
+    time.sleep(1)
+    # print('checking connections')
+    #READY TO READ RETURNS A LIST OF CLOSED IDNUMS
     if len(connected_idnums) > 0:
       
-      test_idnum = connected_idnums[0]
-      test_port = client_data[test_idnum]["port"]
-      test_list = [test_port]
-      test_connection = client_data[test_idnum]["connection"]
-
-      potential_readers = copy.deepcopy(test_list)
-      potential_writers = copy.deepcopy(test_list)
-      potential_errs = copy.deepcopy(test_list)
-      timeout = 10
-      
       sock_list = []
-      #sock_list.append(client_data[test_idnum]["connection"])
 
       for idnum in connected_idnums:
         sock_list.append(client_data[idnum]["connection"])
 
-
       ready_to_read, ready_to_write, in_error = \
-        select.select(
-        sock_list,
-        sock_list,
-        [])
+        select.select(sock_list, sock_list, [])
 
-      print('connection test:')
-      #print(ready_to_read)
-      #print(ready_to_write)
-      #print(in_error)
-      # connection, client_address = ready_to_write
-      # host, port = client_address
-      # name = '{}:{}'.format(host, port)
-      print('ready_to_write:')
-      for item in ready_to_write:
-        print(item.getpeername())
-      print('ready_to_read:')
-      for item in ready_to_read:
-        print(item.getpeername())
+      # convert disconnected names to disconnected idnums
+      for discon_name in ready_to_read:
+        discon_peer = discon_name.getpeername()
+        discon_port = discon_peer[1]
+        for idnums in connected_idnums:
+          if discon_port == client_data[idnums]["port"]:
+            #remove this discon_idnum from all relevant lists
+            print('undiscon discon idnum found: {}'.format(idnums))
+            remove_discon_idnum(idnums)
 
       ready_to_read.clear()
       ready_to_write.clear()
-      #break
 
-    
 
+def remove_discon_idnum(discon_idnum):
+  global live_idnums
+  global connected_idnums
+  #global turn_order
+  global client_data
+  #turn_idnum = 0
+  global eliminated
+  global disconnected_idnums
+
+  for idnums in connected_idnums:
+    client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
+  
+  if discon_idnum in live_idnums:
+    live_idnums.remove(discon_idnum)
+  
+  if discon_idnum in connected_idnums:
+    connected_idnums.remove(discon_idnum)
+  
+  disconnected_idnums.append(discon_idnum)
+  print('{} disconnected'.format(discon_idnum))
+
+  # if discon_idnum in client_data:
+
+  # if discon_idnum in eliminated:
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
