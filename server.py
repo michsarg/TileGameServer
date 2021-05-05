@@ -22,6 +22,7 @@ import random
 import copy
 import time
 import threading
+import select
 
 REQ_PLAYERS = 4
 
@@ -275,10 +276,58 @@ def reset_game_state():
   board.reset()
   game_in_progress = False
 
-def meep():
+def check_connections():
+  global connected_idnums
+  global client_data
+  global sock
+
   while True:
-    print('meep')
     time.sleep(5)
+    if len(connected_idnums) > 0:
+      
+      test_idnum = connected_idnums[0]
+      test_port = client_data[test_idnum]["port"]
+      test_list = [test_port]
+      test_connection = client_data[test_idnum]["connection"]
+
+      potential_readers = copy.deepcopy(test_list)
+      potential_writers = copy.deepcopy(test_list)
+      potential_errs = copy.deepcopy(test_list)
+      timeout = 10
+      
+      sock_list = []
+      #sock_list.append(client_data[test_idnum]["connection"])
+
+      for idnum in connected_idnums:
+        sock_list.append(client_data[idnum]["connection"])
+
+
+      ready_to_read, ready_to_write, in_error = \
+        select.select(
+        sock_list,
+        sock_list,
+        [])
+
+      print('connection test:')
+      #print(ready_to_read)
+      #print(ready_to_write)
+      #print(in_error)
+      # connection, client_address = ready_to_write
+      # host, port = client_address
+      # name = '{}:{}'.format(host, port)
+      print('ready_to_write:')
+      for item in ready_to_write:
+        print(item.getpeername())
+      print('ready_to_read:')
+      for item in ready_to_read:
+        print(item.getpeername())
+
+      ready_to_read.clear()
+      ready_to_write.clear()
+      #break
+
+    
+
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -286,3 +335,4 @@ server_address = ('', 30020)
 sock.bind(server_address)
 threading.Thread(target=listen).start()
 threading.Thread(target=check_start_conditions).start()
+threading.Thread(target=check_connections).start()

@@ -1,10 +1,5 @@
 # cits3002project
 
-THINGS TO DO:
-    needs threading implemented so new players can connect even if a game is in progress
-    
-
-
 Notes:
 
 In TCP, the client initiates a connection, and the server listens for and accepts a connection. Once connected, data can flow both ways.
