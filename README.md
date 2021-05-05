@@ -2,9 +2,8 @@
 
 THINGS TO DO:
 
-    configure delaying start of game until sufficient number of players have joined
-    work out turn taking - currently non functional and sitting in client_handler
-    implement event handling???
+    remove elimiated players from liveidnums so their tokens stop moving
+    do_player_movement() suggests this is the case
 
 
 Notes:

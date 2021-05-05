@@ -23,7 +23,8 @@ import copy
 
 REQ_PLAYERS = 4
 
-live_idnums = [] # all connected clients
+live_idnums = [] # WRONG: all connected clients THESE ARE ONLY THE ACTIVE PLAYERS
+connected_idnums = [] # all connected players
 turn_order = [] # clients in this round & their order
 client_data = {}
 board = tiles.Board()
@@ -172,8 +173,15 @@ def update_and_notify():
   global board
   global eliminated
   global live_idnums
+
+  moving_players = copy.deepcopy(turn_order)
+  for elim in eliminated:
+    for mov in moving_players:
+      if elim == mov:
+        moving_players.remove(mov)
+
   # update the board with token positions & determine any eliminations
-  positionupdates, eliminated = board.do_player_movement(live_idnums)
+  positionupdates, eliminated = board.do_player_movement(moving_players)
 
   # print('eliminated')
   # print(eliminated)
@@ -184,7 +192,7 @@ def update_and_notify():
       client_data[idnums]["connection"].send(msg.pack())
 
   # notify all clients of eliminated players
-  if len(eliminated) < 0:
+  if len(eliminated) > 0:
     for idnums in live_idnums:
       for elim in eliminated:
         client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
