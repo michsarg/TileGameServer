@@ -1,9 +1,8 @@
 # cits3002project
 
 THINGS TO DO:
-
-    remove elimiated players from liveidnums so their tokens stop moving
-    do_player_movement() suggests this is the case
+    needs threading implemented so new players can connect even if a game is in progress
+    
 
 
 Notes:
