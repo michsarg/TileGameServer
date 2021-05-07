@@ -4,3 +4,9 @@ TO DO:
     server must be able to handle unexpected network behaviour
     *   if a player exits durng game they should be eliminated then next player turn starts or if one left then they win
     *   server shoudl handle players attempting to join during the game by giving them updates but not letting them play turns
+
+
+BUGS TO SORT OUT:
+
+    - turn order lost when player quits mid game
+    - playesr need to be stopped from sending out of turn messages

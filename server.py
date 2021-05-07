@@ -50,6 +50,7 @@ def listen():
 def client_handler(connection, address):
   global client_data
   global player_count
+  global live_idnums
 
   host, port = address
   name = '{}:{}'.format(host, port)
@@ -66,8 +67,13 @@ def client_handler(connection, address):
   "name" : name
   }
 
-  # inform other players of this one
+  # testing for disconnection
+  # for idnumz in live_idnums:
+  #   check_connection(idnumz)
+  #   time.sleep(1)
+  #   print('test')
 
+  # inform other players of this one
   for idnum_receiver in connected_idnums:
         if idnum_receiver != idnum:
           client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
@@ -82,12 +88,11 @@ def client_handler(connection, address):
 
 
 def check_start_conditions():
-
   while game_in_progress == False:
     if (len(connected_idnums) >= REQ_PLAYERS):
       setup_game()
+      time.sleep(1)
       run_game()
-
 
 
 def setup_game():
@@ -108,21 +113,7 @@ def setup_game():
   live_idnums = copy.deepcopy(turn_order)
   print('live idnums after copy turn order: {}'.format(live_idnums))
 
-  #populate live_idnums
-
-
-
-
   print('play order: {}'.format(turn_order))
-
-  # MOVED BACKWARDS TO CLIENT HANDLER
-  # send joining message
-  # for idnum_sent in live_idnums:
-  #   for idnum_receiver in connected_idnums:
-  #     if idnum_sent != idnum_receiver:
-  #       idnum = idnum_sent
-  #       name = client_data[idnum_sent]["name"]
-  #       client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(name, idnum).pack())
 
   # sent start message
   for idnums in connected_idnums:
@@ -140,6 +131,9 @@ def run_game():
   global board
   global turn_order
   global turn_idnum
+  global live_idnums
+  global eliminated
+  global connected_idnums
 
   #start the first turn
   turn_idnum = turn_order[0]
@@ -152,13 +146,22 @@ def run_game():
   while True:
 
     # ignore messages if its not the players turn
-    for idnums in connected_idnums:
+    for idnums in live_idnums:
       if idnums == turn_idnum:
         chunk = client_data[idnums]["connection"].recv(4096)
         print('data received from {}'.format(idnums))
         if not chunk:
           print('client {} disconnected'.format(client_data[idnums]["address"]))
-          return
+          #this is how disconnections are received by the server
+          eliminated.append(turn_idnum)
+          connected_idnums.remove(turn_idnum)
+          for idnums in connected_idnums:
+            if idnums != turn_idnum:
+              client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+
+
+          #disappearing code test
+          #return
 
     buffer.extend(chunk)
 
@@ -215,6 +218,8 @@ def update_and_notify():
     for msg in positionupdates:
       client_data[idnums]["connection"].send(msg.pack())
 
+
+
   # notify all clients of eliminated players
   if len(eliminated) > 0:
       # check for eliminated not in prev eliminated
@@ -259,7 +264,10 @@ def progress_turn():
 
   for idnums in connected_idnums:
     # Announce to every client it is this players turn
-    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    try:
+      client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    except:
+      print('error: {}'.format(idnums))
 
 
 def game_over():
@@ -284,66 +292,92 @@ def reset_game_state():
   board.reset()
   game_in_progress = False
 
-def check_connections():
-  global connected_idnums
-  global client_data
-  global sock
-  global disconnected_idnums
-  sock_list = []
-  print('check connections starting')
+# def check_connections():
+#   global connected_idnums
+#   global client_data
+#   global sock
+#   global disconnected_idnums
+#   sock_list = []
+#   print('check connections starting')
 
-  while True:
-    time.sleep(1)
-    # print('checking connections')
-    #READY TO READ RETURNS A LIST OF CLOSED IDNUMS
-    if len(connected_idnums) > 0:
+#   while True:
+#     time.sleep(1)
+#     # print('checking connections')
+#     #READY TO READ RETURNS A LIST OF CLOSED IDNUMS
+#     if len(connected_idnums) > 0:
       
-      sock_list = []
+#       sock_list = []
 
-      for idnum in connected_idnums:
-        sock_list.append(client_data[idnum]["connection"])
+#       for idnum in connected_idnums:
+#         sock_list.append(client_data[idnum]["connection"])
 
-      ready_to_read, ready_to_write, in_error = \
-        select.select(sock_list, sock_list, [])
+#       ready_to_read, ready_to_write, in_error = \
+#         select.select(sock_list, sock_list, [])
 
-      # convert disconnected names to disconnected idnums
-      for discon_name in ready_to_read:
-        discon_peer = discon_name.getpeername()
-        discon_port = discon_peer[1]
-        for idnums in connected_idnums:
-          if discon_port == client_data[idnums]["port"]:
-            #remove this discon_idnum from all relevant lists
-            print('undiscon discon idnum found: {}'.format(idnums))
-            remove_discon_idnum(idnums)
+#       # convert disconnected names to disconnected idnums
+#       for discon_name in ready_to_read:
+#         discon_peer = discon_name.getpeername()
+#         discon_port = discon_peer[1]
+#         for idnums in connected_idnums:
+#           if discon_port == client_data[idnums]["port"]:
+#             #remove this discon_idnum from all relevant lists
+#             print('undiscon discon idnum found: {}'.format(idnums))
+#             remove_discon_idnum(idnums)
 
-      ready_to_read.clear()
-      ready_to_write.clear()
+#       ready_to_read.clear()
+#       ready_to_write.clear()
 
 
-def remove_discon_idnum(discon_idnum):
-  global live_idnums
-  global connected_idnums
-  #global turn_order
-  global client_data
-  #turn_idnum = 0
-  global eliminated
-  global disconnected_idnums
+# def remove_discon_idnum(discon_idnum):
+#   global live_idnums
+#   global connected_idnums
+#   #global turn_order
+#   global client_data
+#   #turn_idnum = 0
+#   global eliminated
+#   global disconnected_idnums
 
-  for idnums in connected_idnums:
-    client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
+#   if turn_idnum == discon_idnum:
+#     progress_turn()
+
   
-  if discon_idnum in live_idnums:
-    live_idnums.remove(discon_idnum)
+#   if discon_idnum in live_idnums:
+#     live_idnums.remove(discon_idnum)
   
-  if discon_idnum in connected_idnums:
-    connected_idnums.remove(discon_idnum)
+#   if discon_idnum in connected_idnums:
+#     connected_idnums.remove(discon_idnum)
+
+#   for idnums in connected_idnums:
+#     client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
   
-  disconnected_idnums.append(discon_idnum)
-  print('{} disconnected'.format(discon_idnum))
+#   disconnected_idnums.append(discon_idnum)
 
-  # if discon_idnum in client_data:
+#   for idnumz in live_idnums:
+#     check_connection(idnumz)
+#     time.sleep(1)
 
-  # if discon_idnum in eliminated:
+#   if turn_idnum == discon_idnum:
+#     progress_turn()
+
+#   print('{} disconnected'.format(discon_idnum))
+
+#   # if discon_idnum in client_data:
+
+#   # if discon_idnum in eliminated:
+
+
+# def check_connection(conn_check_idnum):
+#   global client_data
+#   time.sleep(3)
+#   check_sock = client_data[conn_check_idnum]["connection"]
+#   check_sock.settimeout(0.5)
+#   try:
+#     m = check_sock.recv(100, socket.MSG_DONTWAIT)
+#     print('{} is connected'.format(conn_check_idnum))
+#   except:
+#     print('{} is NOT connected'.format(conn_check_idnum))
+#   #reset timeout
+#   check_sock.settimeout(10)
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -351,4 +385,4 @@ server_address = ('', 30020)
 sock.bind(server_address)
 threading.Thread(target=listen).start()
 threading.Thread(target=check_start_conditions).start()
-threading.Thread(target=check_connections).start()
+# threading.Thread(target=check_connections).start()
