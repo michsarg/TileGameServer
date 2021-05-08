@@ -37,6 +37,39 @@ game_in_progress = False
 eliminated = []
 player_count = 0
 
+class Client:
+  def __init__(connection, address):
+    self.connection = connection
+    self.address = address
+    self.host, self.port = address
+    self.name = '{}:{}'.format(host, port)
+
+class Game:
+  def __init__():
+    self.board = tiles.Board()
+    self.live_idnums = []
+    self.connected_idnums = []
+    #self.turn_order = []
+    #self.eliminated = []
+    self.turn_idnum = 0
+    self.player_count = 0
+    self.game_in_progress = False
+
+  def add_player_to_game(player_idnum):
+    live_idnums.append(player_idnum)
+  
+  def new_client_connected(connnection, address):
+    player_idnum = player_count
+    player_count += 1
+    connected_idnums.append(player_idnum)
+    player_idnum = Client(connection, address)
+    # inform new and existing clients of each other
+    for connected_clients in connected_idnums:
+        receiving_client.connection.send(tiles.MessagePlayerJoined(player_idnum.name, int(player_idnum)).pack()) 
+        player_idnum.connection.send(tiles.MessagePlayerJoined(connected_idnum.name, connected_idnum).pack())
+    # send welcome message
+    player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
+
 
 def listen():
   print('listening on {}'.format(sock.getsockname()))
@@ -57,8 +90,7 @@ def client_handler(connection, address):
 
   idnum = player_count
   player_count += 1
-  connected_idnums.append(idnum)
-  
+
   client_data[idnum] = {
   "connection" : connection,
   "address" : address,
@@ -67,24 +99,14 @@ def client_handler(connection, address):
   "name" : name
   }
 
-  # testing for disconnection
-  # for idnumz in live_idnums:
-  #   check_connection(idnumz)
-  #   time.sleep(1)
-  #   print('test')
-
-  # inform other players of this one
-  for idnum_receiver in connected_idnums:
-        if idnum_receiver != idnum:
-          client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
-
   # send welcome message
   connection.send(tiles.MessageWelcome(idnum).pack())
-
-  # inform this player of others
+  # inform other clients of this one
   for idnum_receiver in connected_idnums:
-    if idnum_receiver != idnum:
-      client_data[idnum]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack())
+          client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
+          client_data[idnum]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack())
+  # add to list of connected
+  connected_idnums.append(idnum)
 
 
 def check_start_conditions():
@@ -102,18 +124,12 @@ def setup_game():
   global game_in_progress
   game_in_progress = True
 
-  #select players to add to game
+  #select players to add to game & create turn order
   turn_order = copy.deepcopy(connected_idnums)
-  print('turn order after connected copy: {}'.format(turn_order))
   random.shuffle(turn_order)
-  print('turn order after shuffle: {}'.format(turn_order))
   while len(turn_order) > REQ_PLAYERS:
     turn_order.pop()
-  print('turn order after crop: {}'.format(turn_order))
   live_idnums = copy.deepcopy(turn_order)
-  print('live idnums after copy turn order: {}'.format(live_idnums))
-
-  print('play order: {}'.format(turn_order))
 
   # sent start message
   for idnums in connected_idnums:
@@ -121,7 +137,6 @@ def setup_game():
 
   # distribute first tiles to players
   for idnums in live_idnums:
-    print('sending tiles')
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
       client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
@@ -215,8 +230,9 @@ def update_and_notify():
 
   # notify all clients of new token positions on board
   for idnums in connected_idnums:
-    for msg in positionupdates:
-      client_data[idnums]["connection"].send(msg.pack())
+    if idnums not in eliminated:
+      for msg in positionupdates:
+        client_data[idnums]["connection"].send(msg.pack())
 
 
 
@@ -291,93 +307,6 @@ def reset_game_state():
   turn_idnum = 0
   board.reset()
   game_in_progress = False
-
-# def check_connections():
-#   global connected_idnums
-#   global client_data
-#   global sock
-#   global disconnected_idnums
-#   sock_list = []
-#   print('check connections starting')
-
-#   while True:
-#     time.sleep(1)
-#     # print('checking connections')
-#     #READY TO READ RETURNS A LIST OF CLOSED IDNUMS
-#     if len(connected_idnums) > 0:
-      
-#       sock_list = []
-
-#       for idnum in connected_idnums:
-#         sock_list.append(client_data[idnum]["connection"])
-
-#       ready_to_read, ready_to_write, in_error = \
-#         select.select(sock_list, sock_list, [])
-
-#       # convert disconnected names to disconnected idnums
-#       for discon_name in ready_to_read:
-#         discon_peer = discon_name.getpeername()
-#         discon_port = discon_peer[1]
-#         for idnums in connected_idnums:
-#           if discon_port == client_data[idnums]["port"]:
-#             #remove this discon_idnum from all relevant lists
-#             print('undiscon discon idnum found: {}'.format(idnums))
-#             remove_discon_idnum(idnums)
-
-#       ready_to_read.clear()
-#       ready_to_write.clear()
-
-
-# def remove_discon_idnum(discon_idnum):
-#   global live_idnums
-#   global connected_idnums
-#   #global turn_order
-#   global client_data
-#   #turn_idnum = 0
-#   global eliminated
-#   global disconnected_idnums
-
-#   if turn_idnum == discon_idnum:
-#     progress_turn()
-
-  
-#   if discon_idnum in live_idnums:
-#     live_idnums.remove(discon_idnum)
-  
-#   if discon_idnum in connected_idnums:
-#     connected_idnums.remove(discon_idnum)
-
-#   for idnums in connected_idnums:
-#     client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
-  
-#   disconnected_idnums.append(discon_idnum)
-
-#   for idnumz in live_idnums:
-#     check_connection(idnumz)
-#     time.sleep(1)
-
-#   if turn_idnum == discon_idnum:
-#     progress_turn()
-
-#   print('{} disconnected'.format(discon_idnum))
-
-#   # if discon_idnum in client_data:
-
-#   # if discon_idnum in eliminated:
-
-
-# def check_connection(conn_check_idnum):
-#   global client_data
-#   time.sleep(3)
-#   check_sock = client_data[conn_check_idnum]["connection"]
-#   check_sock.settimeout(0.5)
-#   try:
-#     m = check_sock.recv(100, socket.MSG_DONTWAIT)
-#     print('{} is connected'.format(conn_check_idnum))
-#   except:
-#     print('{} is NOT connected'.format(conn_check_idnum))
-#   #reset timeout
-#   check_sock.settimeout(10)
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
