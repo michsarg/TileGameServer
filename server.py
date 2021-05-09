@@ -28,47 +28,43 @@ REQ_PLAYERS = 4
 
 live_idnums = [] # list of players connected and in the game now
 connected_idnums = [] # all connected players
-disconnected_idnums = []
-turn_order = [] # clients in this round & their order
+eliminated = []
 client_data = {}
 board = tiles.Board()
-turn_idnum = 0
+turn_idnum = -1
 game_in_progress = False
-eliminated = []
 player_count = 0
 
-class Client:
-  def __init__(connection, address):
-    self.connection = connection
-    self.address = address
-    self.host, self.port = address
-    self.name = '{}:{}'.format(host, port)
+# class Client:
+#   def __init__(connection, address):
+#     self.connection = connection
+#     self.address = address
+#     self.host, self.port = address
+#     self.name = '{}:{}'.format(host, port)
 
-class Game:
-  def __init__():
-    self.board = tiles.Board()
-    self.live_idnums = []
-    self.connected_idnums = []
-    #self.turn_order = []
-    #self.eliminated = []
-    self.turn_idnum = 0
-    self.player_count = 0
-    self.game_in_progress = False
+# class Game:
+#   def __init__():
+#     self.board = tiles.Board()
+#     self.live_idnums = []
+#     self.connected_idnums = []
+#     self.turn_idnum = 0
+#     self.player_count = 0
+#     self.game_in_progress = False
 
-  def add_player_to_game(player_idnum):
-    live_idnums.append(player_idnum)
+#   def add_player_to_game(player_idnum):
+#     live_idnums.append(player_idnum)
   
-  def new_client_connected(connnection, address):
-    player_idnum = player_count
-    player_count += 1
-    connected_idnums.append(player_idnum)
-    player_idnum = Client(connection, address)
-    # inform new and existing clients of each other
-    for connected_clients in connected_idnums:
-        receiving_client.connection.send(tiles.MessagePlayerJoined(player_idnum.name, int(player_idnum)).pack()) 
-        player_idnum.connection.send(tiles.MessagePlayerJoined(connected_idnum.name, connected_idnum).pack())
-    # send welcome message
-    player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
+#   def new_client_connected(connnection, address):
+#     player_idnum = player_count
+#     player_count += 1
+#     connected_idnums.append(player_idnum)
+#     player_idnum = Client(connection, address)
+#     # inform new and existing clients of each other
+#     for connected_clients in connected_idnums:
+#         receiving_client.connection.send(tiles.MessagePlayerJoined(player_idnum.name, int(player_idnum)).pack()) 
+#         player_idnum.connection.send(tiles.MessagePlayerJoined(connected_idnum.name, connected_idnum).pack())
+#     # send welcome message
+#     player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
 
 
 def listen():
@@ -112,24 +108,25 @@ def client_handler(connection, address):
 def check_start_conditions():
   while game_in_progress == False:
     if (len(connected_idnums) >= REQ_PLAYERS):
+      for idnums in connected_idnums:
+        client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
+      time.sleep(4)
       setup_game()
       time.sleep(1)
       run_game()
 
 
 def setup_game():
-  global turn_order
   global live_idnums
   global connected_idnums
   global game_in_progress
   game_in_progress = True
 
-  #select players to add to game & create turn order
-  turn_order = copy.deepcopy(connected_idnums)
-  random.shuffle(turn_order)
-  while len(turn_order) > REQ_PLAYERS:
-    turn_order.pop()
-  live_idnums = copy.deepcopy(turn_order)
+  #select players to add to game & create live_idnums
+  live_idnums = copy.deepcopy(connected_idnums)
+  random.shuffle(live_idnums)
+  while len(live_idnums) > REQ_PLAYERS:
+    live_idnums.pop(len(live_idnums)-1)
 
   # sent start message
   for idnums in connected_idnums:
@@ -144,14 +141,12 @@ def setup_game():
 
 def run_game():
   global board
-  global turn_order
-  global turn_idnum
   global live_idnums
-  global eliminated
   global connected_idnums
+  global turn_idnum
 
   #start the first turn
-  turn_idnum = turn_order[0]
+  turn_idnum = live_idnums[0]
   for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
@@ -159,24 +154,22 @@ def run_game():
 
   # Enter infinte loop for processing received chunks
   while True:
+    print('current turn is:', turn_idnum)
 
     # ignore messages if its not the players turn
-    for idnums in live_idnums:
-      if idnums == turn_idnum:
-        chunk = client_data[idnums]["connection"].recv(4096)
-        print('data received from {}'.format(idnums))
-        if not chunk:
-          print('client {} disconnected'.format(client_data[idnums]["address"]))
-          #this is how disconnections are received by the server
-          eliminated.append(turn_idnum)
-          connected_idnums.remove(turn_idnum)
-          for idnums in connected_idnums:
-            if idnums != turn_idnum:
-              client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+    chunk = client_data[turn_idnum]["connection"].recv(4096)
+    print('data received from {}'.format(turn_idnum))
+    if not chunk:
+      print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
+      #this is how disconnections are received by the server
+      live_idnums.remove(turn_idnum)
+      for idnums in connected_idnums:
+        #if idnums != turn_idnum:
+        client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+          # needs elimination message?
 
-
-          #disappearing code test
-          #return
+      #disappearing code test
+      #return
 
     buffer.extend(chunk)
 
@@ -222,31 +215,32 @@ def run_game():
 def update_and_notify():
   global client_data
   global board
-  global eliminated
   global live_idnums
+  global eliminated
 
   prev_eliminated = copy.deepcopy(eliminated)
   positionupdates, eliminated = board.do_player_movement(live_idnums)
 
-  # notify all clients of new token positions on board
-  for idnums in connected_idnums:
-    if idnums not in eliminated:
-      for msg in positionupdates:
-        client_data[idnums]["connection"].send(msg.pack())
-
-
+  print('eliminated:{}'.format(eliminated))
 
   # notify all clients of eliminated players
   if len(eliminated) > 0:
       # check for eliminated not in prev eliminated
       for elim in eliminated:
         if elim not in prev_eliminated:
+          # remove from live_idnums
+          live_idnums.remove(elim)
           # all connected to be notified
           for idnums in connected_idnums:
             client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
 
+  # notify all clients of new token positions on board
+  for idnums in connected_idnums:
+      for msg in positionupdates:
+        client_data[idnums]["connection"].send(msg.pack())
+
   # check if a player has won the game
-  if (len(turn_order)-len(eliminated)) == 1:
+  if (len(live_idnums)) == 1:
     game_over()
 
 
@@ -254,40 +248,27 @@ def progress_turn():
   #determine whos turn it is
   global live_idnums
   global turn_idnum # players will be notified this player can make next turn
-  global turn_order # includes all players; those elimated are still in here
-  global eliminated
 
-  # this will successfully progress the game, skipping elim players in turn order
-  for index in range(len(turn_order)):
-    # find the index that matches turn_idnum
-    if turn_order[index] == turn_idnum:
-      if (turn_order[(index+1)%len(turn_order)] not in eliminated \
-        and turn_order[(index+1)%len(turn_order)] not in disconnected_idnums):
-          turn_idnum = turn_order[(index+1)%len(turn_order)]
-          break
-      elif (turn_order[(index+2)%len(turn_order)] not in eliminated \
-        and turn_order[(index+2)%len(turn_order)] not in disconnected_idnums):
-        turn_idnum = turn_order[(index+2)%len(turn_order)]
-        break
-      elif (turn_order[(index+3)%len(turn_order)] not in eliminated \
-        and turn_order[(index+3)%len(turn_order)] not in disconnected_idnums):
-          turn_idnum = turn_order[(index+3)%len(turn_order)]
-          break
-      elif (turn_order[(index+4)%len(turn_order)] not in eliminated \
-        and turn_order[(index+4)%len(turn_order)] not in disconnected_idnums):
-          turn_idnum = turn_order[(index+4)%len(turn_order)]
-          break
+  print('before turn progression:')
+  print('turn_idnum: ', turn_idnum )
+  print('live_idnums: ', live_idnums)
 
+  # progress the order & nominate next turn_idnum
+  turn_idnum = live_idnums.pop(0)
+  live_idnums.append(turn_idnum)
+  turn_idnum = live_idnums[0]
+
+  print('after turn progression:')
+  print('turn_idnum: ', turn_idnum )
+  print('live_idnums: ', live_idnums)
+
+  # Announce to every client it is this players turn
   for idnums in connected_idnums:
-    # Announce to every client it is this players turn
-    try:
-      client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
-    except:
-      print('error: {}'.format(idnums))
-
+    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+  
 
 def game_over():
-  print('GAME OVER BROS')
+  print('GAME OVER')
   time.sleep(5)
   # reset all global variables related to game
   reset_game_state()
@@ -295,15 +276,11 @@ def game_over():
 
 def reset_game_state():
   global live_idnums
-  global turn_order
-  global eliminated
   global board
   global turn_idnum
   global game_in_progress
 
   live_idnums.clear()
-  turn_order.clear()
-  eliminated.clear()
   turn_idnum = 0
   board.reset()
   game_in_progress = False
