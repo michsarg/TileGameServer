@@ -7,6 +7,10 @@ TO DO:
 
 
 BUGS TO SORT OUT:
-
-    - turn order lost when player quits mid game
-    - playesr need to be stopped from sending out of turn messages
+    - GAME RUN CHECKLIST:
+    - quit on player turn: TURN ORDER MAINTAINED
+    - quit off player turn: ERROR
+    - elim on player turn:
+    - elim off player turn:
+    - win on player turn:
+    - win off player turn:

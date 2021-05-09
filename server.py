@@ -162,19 +162,25 @@ def run_game():
     if not chunk:
       print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
       #this is how disconnections are received by the server
+      
+      #remove player from game
       try:
         live_idnums.remove(turn_idnum)
       except:
-        pass
+        print('turn_idnum {} not found in live_idnums'.format(turn_idnum))
+        for idnums in connected_idnums:
+          client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+        progress_turn()
+        continue
+            
+      #notify other players this one has left
       for idnums in connected_idnums:
-        #if idnums != turn_idnum:
         try:
           client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-        except:
-          connected_idnums.remove(idnums)
-          if idnums in live_idnums:
-            live_idnums.remove(idnums)
           # needs elimination message?
+        except:
+          print('idnum {} apparently not connected'.format(idnums))
+        
 
       #disappearing code test
       #return
@@ -250,7 +256,7 @@ def update_and_notify():
         try:
           client_data[idnums]["connection"].send(msg.pack())
         except:
-          live_idnums.remove(idnums)
+          connected_idnums.remove(idnums)
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
