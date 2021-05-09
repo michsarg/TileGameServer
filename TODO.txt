@@ -1,5 +1,15 @@
 TO DO:
 
+*** live_idnums needs to be a list that only contains active players ***
+    - need to implement another thread to handle messages in game between server and players
+    - incoming data needs to be accepted from every client
+        - if its a chunk
+            -process if turn correct
+            - ignore if turn incorrect
+        - if not a chunk
+            - remove player
+
+
 3- Connection Issues
     server must be able to handle unexpected network behaviour
     *   if a player exits durng game they should be eliminated then next player turn starts or if one left then they win

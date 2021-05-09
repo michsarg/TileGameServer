@@ -34,6 +34,7 @@ board = tiles.Board()
 turn_idnum = -1
 game_in_progress = False
 player_count = 0
+turn_history = []
 
 # class Client:
 #   def __init__(connection, address):
@@ -144,9 +145,11 @@ def run_game():
   global live_idnums
   global connected_idnums
   global turn_idnum
+  global turn_history
 
   #start the first turn
   turn_idnum = live_idnums[0]
+  turn_history.append(turn_idnum)
   for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
@@ -154,62 +157,81 @@ def run_game():
 
   # Enter infinte loop for processing received chunks
   while True:
-    print('current turn is:', turn_idnum)
 
-    # ignore messages if its not the players turn
-    chunk = client_data[turn_idnum]["connection"].recv(4096)
-    print('data received from {}'.format(turn_idnum))
-    if not chunk:
-      print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
-      #this is how disconnections are received by the server
-      live_idnums.remove(turn_idnum)
-      for idnums in connected_idnums:
-        #if idnums != turn_idnum:
-        client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-          # needs elimination message?
+    for idnums in live_idnums:
+      print('listening for msg from {}'.format(idnums))
+      # incoming chunk received
+      print('current turn is:', turn_idnum)
+      # control flow pauses here until connection received
+      chunk = client_data[idnums]["connection"].recv(4096)
+      if chunk is not None:
+        print('data received from {}'.format(idnums))
 
-      #disappearing code test
-      #return
-
-    buffer.extend(chunk)
-
-    while True:
-      msg, consumed = tiles.read_message_from_bytearray(buffer)
-      if not consumed:
-        break
-
-      buffer = buffer[consumed:]
-
-      print('received message {}'.format(msg))
-
-      # sent by the player to put a tile onto the board (all turns except second)
-      if isinstance(msg, tiles.MessagePlaceTile):
-        if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
-
-          # inform all clients of newly placed tile
-          for idnums in connected_idnums:
-            client_data[idnums]["connection"].send(msg.pack())
-
-          # update board and notify clients
-          update_and_notify()
-
-          # issue replacement tile to active player
-          tileid = tiles.get_random_tileid()
-          client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
-
-          #initiate the next turn in the game
+        if not chunk:
+          print('non-chunk received from player{}'.format(idnums))
+          print('client {} disconnected'.format(client_data[idnums]["address"]))
+          #this is how disconnections are received by the server
+          #live_idnums.remove(turn_idnum)
+          for receiver_idnums in connected_idnums:
+            if receiver_idnums != idnums:
+              client_data[receiver_idnums]["connection"].send(tiles.MessagePlayerLeft(idnums).pack())
+              # needs elimination message?
           progress_turn()
+          continue #returns to checking input from other idnums
+        else:
+          print('data confirmed chunk')
+          if idnums != turn_idnum:
+            print('out of turn data chunk ignored')
+            continue #returns to checking input from other idnums
+          else:
+            #processing_chunk = True
 
-      # sent by the player in the second turn, to choose their token's starting path
-      elif isinstance(msg, tiles.MessageMoveToken):
-        if not board.have_player_position(msg.idnum):
-          if board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
-            
-            # update board and notify clients
-            update_and_notify()
+            buffer.extend(chunk)
+            print('proceeding with chunk from {}'.format(idnums))
 
-            # start next turn
-            progress_turn()
+            #while True:
+            msg, consumed = tiles.read_message_from_bytearray(buffer)
+            if not consumed:
+              break
+
+            buffer = buffer[consumed:]
+
+            print('received message {}'.format(msg))
+
+            # sent by the player to put a tile onto the board (all turns except second)
+            if isinstance(msg, tiles.MessagePlaceTile):
+              if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
+
+                # inform all clients of newly placed tile
+                for receiver_idnums in connected_idnums:
+                  client_data[receiver_idnums]["connection"].send(msg.pack())
+
+                # update board and notify clients
+                update_and_notify()
+
+                # issue replacement tile to active player
+                tileid = tiles.get_random_tileid()
+                client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+
+                #initiate the next turn in the game
+                if 0 == progress_turn():
+                  print('returned')  
+                  continue
+
+            # sent by the player in the second turn, to choose their token's starting path
+            elif isinstance(msg, tiles.MessageMoveToken):
+              if not board.have_player_position(msg.idnum):
+                if board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
+                  
+                  # update board and notify clients
+                  update_and_notify()
+
+                  # start next turn
+                  if 0 == progress_turn():
+                    print('returned') 
+                    continue
+      else:
+        continue
 
 
 def update_and_notify():
@@ -237,7 +259,12 @@ def update_and_notify():
   # notify all clients of new token positions on board
   for idnums in connected_idnums:
       for msg in positionupdates:
-        client_data[idnums]["connection"].send(msg.pack())
+        # exception to handle disconnections
+        try:
+          client_data[idnums]["connection"].send(msg.pack())
+        except:
+          print('player', idnums, 'disconnected')
+          continue
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
@@ -248,6 +275,9 @@ def progress_turn():
   #determine whos turn it is
   global live_idnums
   global turn_idnum # players will be notified this player can make next turn
+  global turn_history
+  global processing_chunk
+
 
   print('before turn progression:')
   print('turn_idnum: ', turn_idnum )
@@ -262,9 +292,15 @@ def progress_turn():
   print('turn_idnum: ', turn_idnum )
   print('live_idnums: ', live_idnums)
 
+  # update turn history
+  turn_history.append(turn_idnum)
+
   # Announce to every client it is this players turn
   for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+  
+  return 0
+  #processing_chunk = False
   
 
 def game_over():
@@ -289,6 +325,10 @@ def reset_game_state():
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_address = ('', 30020)
 sock.bind(server_address)
+#listens for new clients
 threading.Thread(target=listen).start()
+# checks if conditions exist to start a game
 threading.Thread(target=check_start_conditions).start()
-# threading.Thread(target=check_connections).start()
+# listens for incoming data from connected players
+# needs implementation
+#threading.Thread(target=chunk_listener).start
