@@ -19,7 +19,7 @@ import threading
 import select
 
 class Application(Frame):
-  TILE_PX = 80 # pixels
+  TILE_PX = 55 # pixels
   BORDER_PX = 50 # pixels
   HAND_SPACING_PX = 10 # pixels
 

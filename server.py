@@ -162,8 +162,12 @@ def run_game():
       print('listening for msg from {}'.format(idnums))
       # incoming chunk received
       print('current turn is:', turn_idnum)
+      
       # control flow pauses here until connection received
+      # need threaded function to listen to all player idnums sending a msg
+      # threaded function should accept from any receiver
       chunk = client_data[idnums]["connection"].recv(4096)
+
       if chunk is not None:
         print('data received from {}'.format(idnums))
 
@@ -323,10 +327,10 @@ def reset_game_state():
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_address = ('', 30020)
+server_address = ('localhost', 30020)
 sock.bind(server_address)
 #listens for new clients
-threading.Thread(target=listen).start()
+threading.Thread(target=listen, args=(), daemon=True).start()
 # checks if conditions exist to start a game
 threading.Thread(target=check_start_conditions).start()
 # listens for incoming data from connected players
