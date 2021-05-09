@@ -73,7 +73,7 @@ def listen():
   while True:
     connection, client_address = sock.accept()
     print('received connection from {}'.format(client_address))
-    client_handler(connection, client_address)
+    threading.Thread(target=client_handler, args=(connection, client_address), daemon=True).start()
 
 
 def client_handler(connection, address):
@@ -110,7 +110,7 @@ def check_start_conditions():
     if (len(connected_idnums) >= REQ_PLAYERS):
       for idnums in connected_idnums:
         client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
-      time.sleep(4)
+      time.sleep(1)
       setup_game()
       time.sleep(1)
       run_game()
@@ -152,7 +152,7 @@ def run_game():
 
   buffer = bytearray()
 
-  # Enter infinte loop for processing received chunks
+  # Enter infinte loop for receiving chunks
   while True:
     print('current turn is:', turn_idnum)
 
@@ -162,10 +162,18 @@ def run_game():
     if not chunk:
       print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
       #this is how disconnections are received by the server
-      live_idnums.remove(turn_idnum)
+      try:
+        live_idnums.remove(turn_idnum)
+      except:
+        pass
       for idnums in connected_idnums:
         #if idnums != turn_idnum:
-        client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+        try:
+          client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+        except:
+          connected_idnums.remove(idnums)
+          if idnums in live_idnums:
+            live_idnums.remove(idnums)
           # needs elimination message?
 
       #disappearing code test
@@ -173,6 +181,7 @@ def run_game():
 
     buffer.extend(chunk)
 
+    #infinite loop for
     while True:
       msg, consumed = tiles.read_message_from_bytearray(buffer)
       if not consumed:
@@ -237,7 +246,11 @@ def update_and_notify():
   # notify all clients of new token positions on board
   for idnums in connected_idnums:
       for msg in positionupdates:
-        client_data[idnums]["connection"].send(msg.pack())
+        # handle disconnected 
+        try:
+          client_data[idnums]["connection"].send(msg.pack())
+        except:
+          live_idnums.remove(idnums)
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
@@ -254,9 +267,13 @@ def progress_turn():
   print('live_idnums: ', live_idnums)
 
   # progress the order & nominate next turn_idnum
-  turn_idnum = live_idnums.pop(0)
-  live_idnums.append(turn_idnum)
-  turn_idnum = live_idnums[0]
+  if turn_idnum in live_idnums:
+    turn_idnum = live_idnums.pop(0)
+    live_idnums.append(turn_idnum)
+    turn_idnum = live_idnums[0]
+  else:
+    #in case last player eliminated self
+    turn_idnum = live_idnums[0]
 
   print('after turn progression:')
   print('turn_idnum: ', turn_idnum )
@@ -264,13 +281,17 @@ def progress_turn():
 
   # Announce to every client it is this players turn
   for idnums in connected_idnums:
-    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
-  
+    try:
+      client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    except:
+      connected_idnums.remove(idnums)
 
 def game_over():
   print('GAME OVER')
-  time.sleep(5)
+  time.sleep(1)
   # reset all global variables related to game
+
+
   reset_game_state()
   check_start_conditions()
 
@@ -287,8 +308,8 @@ def reset_game_state():
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_address = ('', 30020)
+server_address = ('localhost', 30020)
 sock.bind(server_address)
 threading.Thread(target=listen).start()
-threading.Thread(target=check_start_conditions).start()
-# threading.Thread(target=check_connections).start()
+check_start_conditions()
+#threading.Thread(target=check_start_conditions).start()
