@@ -8,9 +8,9 @@ TO DO:
 
 BUGS TO SORT OUT:
     - GAME RUN CHECKLIST:
-    - quit on player turn: TURN ORDER MAINTAINED
-    - quit off player turn: ERROR
-    - elim on player turn:
-    - elim off player turn:
-    - win on player turn:
-    - win off player turn:
+    - quit on player turn: ok - TURN ORDER MAINTAINED
+    - quit off player turn: ERROR - WINNER DOESNT GET RECOGNISED
+    - elim on player turn: ok - TURN ORDER MAINTAINED
+    - elim off player turn: ok - TURN ORER MAINTAINED
+    - win on player turn: ok - WIN CORRECT
+    - win off player turn: ok - WIN CORRECT

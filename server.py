@@ -168,10 +168,17 @@ def run_game():
         live_idnums.remove(turn_idnum)
       except:
         print('turn_idnum {} not found in live_idnums'.format(turn_idnum))
-        for idnums in connected_idnums:
-          client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-        progress_turn()
-        continue
+      for idnums in connected_idnums:
+        if idnums in connected_idnums:
+          try:
+            client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+          except:
+            connected_idnums.remove(idnums)
+            print('unknown player {} removed from connected_idnums'.format(idnums))
+            for idnumstwo in connected_idnums:
+              client_data[idnumstwo]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
+      progress_turn()
+      continue
             
       #notify other players this one has left
       for idnums in connected_idnums:
@@ -260,6 +267,8 @@ def update_and_notify():
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
+    print('live_idnums: {}'.format(live_idnums))
+    print('connected_idnums: {}'.format(connected_idnums))
     game_over()
 
 
