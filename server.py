@@ -168,25 +168,42 @@ def run_game():
         live_idnums.remove(turn_idnum)
       except:
         print('turn_idnum {} not found in live_idnums'.format(turn_idnum))
-      for idnums in connected_idnums:
-        if idnums in connected_idnums:
-          try:
-            client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-          except:
-            connected_idnums.remove(idnums)
-            print('unknown player {} removed from connected_idnums'.format(idnums))
-            for idnumstwo in connected_idnums:
-              client_data[idnumstwo]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
-      progress_turn()
-      continue
-            
-      #notify other players this one has left
+
+      # remove player from connections list
+      try:
+        connections.remove(turn_idnum)
+      except:
+        print('turn_idnum {} not found in connected_idnums'.format(connected_idnums))
+
+      # notify all connected the player has left
       for idnums in connected_idnums:
         try:
           client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-          # needs elimination message?
+          # client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(turn_idnum).pack())
         except:
-          print('idnum {} apparently not connected'.format(idnums))
+          print('player {} could not be informed that {} has left'.format(idnums, turn_idnum))
+
+      # # notify other players this one has left  
+      # for idnums in connected_idnums:
+      #   try:
+      #     client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+      #   except:
+      #     connected_idnums.remove(idnums)
+      #     print('unknown player {} removed from connected_idnums'.format(idnums))
+      #     for idnumstwo in connected_idnums:
+      #       client_data[idnumstwo]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
+
+      # skip this players turn and proceed to next turns players message        
+      progress_turn()
+      continue
+            
+      # #notify other players this one has left
+      # for idnums in connected_idnums:
+      #   try:
+      #     client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
+      #     # needs elimination message?
+      #   except:
+      #     print('idnum {} apparently not connected'.format(idnums))
         
 
       #disappearing code test
@@ -288,6 +305,7 @@ def progress_turn():
     turn_idnum = live_idnums[0]
   else:
     #in case last player eliminated self
+    print(live_idnums)
     turn_idnum = live_idnums[0]
 
   print('after turn progression:')
