@@ -156,12 +156,10 @@ def client_handler(idnum, connection, address):
       if idnums not in live_idnums:
         client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
 
-
     # notify client of all tiles already on board
     # using MessagePlaceTile
     # notify client of all token positions
     # using MessageMoveToken
-
     for turn in turn_log:
       client_data[idnum]["connection"].send(turn.pack())
 
@@ -366,6 +364,7 @@ def update_and_notify():
   for idnums in connected_idnums:
       for msg in positionupdates:
         try:
+          turn_log.append(msg)
           client_data[idnums]["connection"].send(msg.pack())
         except:
           #should never be reached as eliminated players are removed before this
@@ -410,6 +409,20 @@ def progress_turn():
       client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
     except:
       connected_idnums.remove(idnums)
+
+  move_timer(turn_idnum)
+
+
+# if a player doesnt make a valid move within 10 seconds, the server makes a move for them
+def move_timer(this_turn):
+  """ Makes a valid move for the player after 10 seconds """
+  global turn_idnum
+  
+
+
+  pass
+
+
 
 def game_over():
   print('GAME OVER')
