@@ -38,9 +38,11 @@ buffer = bytearray()
 thread_list = []
 game_start_idnums = []
 tile_log = []
+token_log = []
+turn_log = []
 
 # class Client:
-#   def __init__(connection, address):
+#   def __init__(self, connection, address):
 #     self.connection = connection
 #     self.address = address
 #     self.host, self.port = address
@@ -154,19 +156,20 @@ def client_handler(idnum, connection, address):
       if idnums not in live_idnums:
         client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
 
+
+    # notify client of all tiles already on board
+    # using MessagePlaceTile
+    # notify client of all token positions
+    # using MessageMoveToken
+
+    for turn in turn_log:
+      client_data[idnum]["connection"].send(turn.pack())
+
     # notify client real current turn
     # using MessagePlayerTurn again
     client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
-    # notify client of all tiles already on board
-    # using MessagePlaceTile
-    for tile in tile_log:
-      client_data[idnum]["connection"].send(tile_msg.pack())
 
-
-
-    # notify client of all token positions
-    # using MessageMoveToken
 
     pass
 
@@ -220,6 +223,8 @@ def run_game():
   global turn_idnum
   global buffer
   global tile_log
+  global token_log
+  global turn_log
 
   #start the first turn
   turn_idnum = live_idnums[0]
@@ -302,7 +307,7 @@ def run_game():
               continue
 
           # save to tile placement log
-          tile_log.append(msg)
+          turn_log.append(msg)
 
           # update board and notify clients
           update_and_notify()
@@ -318,6 +323,9 @@ def run_game():
       elif isinstance(msg, tiles.MessageMoveToken):
         if not board.have_player_position(msg.idnum):
           if board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
+
+            #save to token placement log
+            turn_log.append(msg)
             
             # update board and notify clients
             update_and_notify()
