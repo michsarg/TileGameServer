@@ -89,6 +89,7 @@ def client_handler(idnum, connection, address):
   global client_data
   global player_count
   global live_idnums
+  global game_in_progress
 
   host, port = address
   name = '{}:{}'.format(host, port)
@@ -113,6 +114,24 @@ def client_handler(idnum, connection, address):
   # add to list of connected
   connected_idnums.append(idnum)
 
+  #Tier4: update here to inform new conection of current game
+  if game_in_progress == True:
+    # notify client  of players who started current game
+    # using MessagePlayerTurn
+
+    # notify client of players eliminated from current game
+    # using MessagePlayerEliminated
+
+    # notify client real current turn
+    # using MessagePlayerTurn again
+
+    # notify client of all tiles already on board
+    # using MessagePlaceTile
+
+    # notify client of all token positions
+    # using MessageMoveToken
+
+    pass
 
 def check_start_conditions():
   while game_in_progress == False:
@@ -170,9 +189,6 @@ def run_game():
     # ignore messages if its not the players turn
     chunk = client_data[turn_idnum]["connection"].recv(4096)
     print('data received from {}'.format(turn_idnum))
-    # this is where i need to have multiple threads all listening at the same time
-    # they should all receive chunks; ignore if chunk and not turn
-    # process non chunks immediately!!
 
     if not chunk:
       print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
@@ -290,10 +306,10 @@ def update_and_notify():
   # notify all clients of new token positions on board
   for idnums in connected_idnums:
       for msg in positionupdates:
-        # handle disconnected 
         try:
           client_data[idnums]["connection"].send(msg.pack())
         except:
+          #should never be reached as eliminated players are removed before this
           print('player {} could not be informed of position updates'.format(idnums))
           continue
           #connected_idnums.remove(idnums)
