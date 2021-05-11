@@ -228,6 +228,8 @@ def run_game():
   turn_idnum = live_idnums[0]
   for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+  #move timer for first turn  
+  threading.Thread(target=move_timer, daemon=True).start()
 
   buffer = bytearray()
   
@@ -409,20 +411,36 @@ def progress_turn():
       client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
     except:
       connected_idnums.remove(idnums)
+  
+  #requires new thread
+  move_thread = threading.Thread(target=move_timer, daemon=True)
+  move_thread.start()
 
-  move_timer(turn_idnum)
 
 
 # if a player doesnt make a valid move within 10 seconds, the server makes a move for them
-def move_timer(this_turn):
+def move_timer():
   """ Makes a valid move for the player after 10 seconds """
   global turn_idnum
-  
+  print('move timer started for {}'.format(turn_idnum))
+  tracked_idnum = turn_idnum
+  timer_running = True
+  time_start = time.perf_counter()
 
+  while timer_running == True:
+    
+    time_now = time.perf_counter()
+    
+    if (time_now-time_start)>10:
+      print('times up!')
+      #timer_running = False
+      break
+    
+    if tracked_idnum != turn_idnum:
+      print('move played!')
+      timer_running = False
 
-  pass
-
-
+  print('leaving timer...')
 
 def game_over():
   print('GAME OVER')
@@ -434,12 +452,15 @@ def game_over():
   check_start_conditions()
 
 def reset_game_state():
+  """Resets global game variables and enables new game to start"""
   global live_idnums
   global board
   global turn_idnum
   global game_in_progress
+  global turn_log
 
   live_idnums.clear()
+  turn_log.clear()
   turn_idnum = 0
   board.reset()
   game_in_progress = False
