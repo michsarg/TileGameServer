@@ -279,7 +279,13 @@ def update_and_notify():
           live_idnums.remove(elim)
           # all connected to be notified
           for idnums in connected_idnums:
-            client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
+            try:
+              client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
+            except:
+              # this likly is not connected due to mulitple eliminations in the same turn
+              # this player will be removed when the eliminated list reaches them
+              print('player {} could not be informed of the elimination of {}'.format(idnums, elim))
+              continue
 
   # notify all clients of new token positions on board
   for idnums in connected_idnums:
@@ -288,7 +294,9 @@ def update_and_notify():
         try:
           client_data[idnums]["connection"].send(msg.pack())
         except:
-          connected_idnums.remove(idnums)
+          print('player {} could not be informed of position updates'.format(idnums))
+          continue
+          #connected_idnums.remove(idnums)
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
