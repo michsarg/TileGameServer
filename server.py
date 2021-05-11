@@ -36,6 +36,8 @@ game_in_progress = False
 player_count = 0
 buffer = bytearray()
 thread_list = []
+game_start_idnums = []
+tile_log = []
 
 # class Client:
 #   def __init__(connection, address):
@@ -68,6 +70,21 @@ thread_list = []
 #     # send welcome message
 #     player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
 
+# class Message:
+#   global client_data
+#   global connected_idnums
+#   global live_idnums
+
+#   def __init__(self, receiver, subject, msg):
+#     self.receiver = receiver
+#     self.subject = subject
+#     self.msg = msg
+
+#   def forward(self):
+#     for rec_idnum in self.receiver:
+#       client_data[rec_idnum]["connection"].send(message)
+
+
 
 def listen():
   global player_count
@@ -89,7 +106,9 @@ def client_handler(idnum, connection, address):
   global client_data
   global player_count
   global live_idnums
+  global game_start_idnums
   global game_in_progress
+  global tile_log
 
   host, port = address
   name = '{}:{}'.format(host, port)
@@ -105,8 +124,15 @@ def client_handler(idnum, connection, address):
   "name" : name
   }
 
-  # send welcome message
+  #send welcome message
   connection.send(tiles.MessageWelcome(idnum).pack())
+
+  # # TEST of message send method
+  # msg_obj = tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()
+  # message = Message(connected_idnums, idnum, msg_obj)
+  # message.forward()
+  # print('test lol')
+
   # inform other clients of this one
   for idnum_receiver in connected_idnums:
           client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
@@ -116,17 +142,28 @@ def client_handler(idnum, connection, address):
 
   #Tier4: update here to inform new conection of current game
   if game_in_progress == True:
+
     # notify client  of players who started current game
     # using MessagePlayerTurn
+    for idnums in game_start_idnums:
+      client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(idnums).pack())
 
     # notify client of players eliminated from current game
     # using MessagePlayerEliminated
+    for idnums in game_start_idnums:
+      if idnums not in live_idnums:
+        client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
 
     # notify client real current turn
     # using MessagePlayerTurn again
+    client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
     # notify client of all tiles already on board
     # using MessagePlaceTile
+    for tile in tile_log:
+      client_data[idnum]["connection"].send(tile_msg.pack())
+
+
 
     # notify client of all token positions
     # using MessageMoveToken
@@ -137,7 +174,12 @@ def check_start_conditions():
   while game_in_progress == False:
     if (len(connected_idnums) >= REQ_PLAYERS):
       for idnums in connected_idnums:
-        client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
+        try:
+          client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
+        except:
+          connected_idnums.remove(idnums)
+          continue
+
       time.sleep(1)
       setup_game()
       print('Starting game...')
@@ -148,14 +190,17 @@ def check_start_conditions():
 def setup_game():
   global live_idnums
   global connected_idnums
+  global game_start_idnums
   global game_in_progress
   game_in_progress = True
 
-  #select players to add to game & create live_idnums
+
+  #select players to add to game & create live_idnums, game_start_idnums
   live_idnums = copy.deepcopy(connected_idnums)
   random.shuffle(live_idnums)
   while len(live_idnums) > REQ_PLAYERS:
     live_idnums.pop(len(live_idnums)-1)
+  game_start_idnums = copy.deepcopy(live_idnums)
 
   # sent start message
   for idnums in connected_idnums:
@@ -174,6 +219,7 @@ def run_game():
   global connected_idnums
   global turn_idnum
   global buffer
+  global tile_log
 
   #start the first turn
   turn_idnum = live_idnums[0]
@@ -224,9 +270,6 @@ def run_game():
       except:
         print('discon_idnum {} not found in connected_idnums'.format(connected_idnums))
 
-
-
-    
       # nothing more to do with disconnected player
       # choose who plays next and process their chunk
       progress_turn()
@@ -251,7 +294,15 @@ def run_game():
 
           # inform all clients of newly placed tile
           for idnums in connected_idnums:
-            client_data[idnums]["connection"].send(msg.pack())
+            try:
+              client_data[idnums]["connection"].send(msg.pack())
+            except:
+              #observing player disconnected; remove from connected_idnums
+              connected_idnums.remove(idnums)
+              continue
+
+          # save to tile placement log
+          tile_log.append(msg)
 
           # update board and notify clients
           update_and_notify()

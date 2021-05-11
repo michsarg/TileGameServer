@@ -1,16 +1,11 @@
 TO DO:
 
-3- Connection Issues
-    server must be able to handle unexpected network behaviour
-    *   if a player exits durng game they should be eliminated then next player turn starts or if one left then they win
-    *   server shoudl handle players attempting to join during the game by giving them updates but not letting them play turns
+4 - Player Issues
+    Next, we should make the experience for players that join partway through an existing game, by helping them to catch up on the game state.
 
 
 BUGS TO SORT OUT:
-    - GAME RUN CHECKLIST for Tier3:
-    - quit on player turn: correcct - procceeds in order and win leads to reset
-    - quit off player turn: correct - proceeds in order and win eads to reset
-    - elim on player turn: correct - proceeds in order and win leads to reset
-    - elim off player turn: correct - proceeds in order and win leads to reset
-    - win on player turn: 
-    - win off player turn: 
+    OVERALL - Im having to use try/except to deal with disconnects. There needs to be a faster way to handle disconnects i.e. move queue
+
+    - implement message sending function
+        - checks for disconnection + reacts
