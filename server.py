@@ -34,6 +34,8 @@ board = tiles.Board()
 turn_idnum = -1
 game_in_progress = False
 player_count = 0
+buffer = bytearray()
+thread_list = []
 
 # class Client:
 #   def __init__(connection, address):
@@ -68,15 +70,22 @@ player_count = 0
 
 
 def listen():
+  global player_count
+  global thread_list
   print('listening on {}'.format(sock.getsockname()))
   sock.listen(5)
+
   while True:
     connection, client_address = sock.accept()
     print('received connection from {}'.format(client_address))
-    threading.Thread(target=client_handler, args=(connection, client_address), daemon=True).start()
+    idnum = player_count
+    player_count += 1
+    thread = threading.Thread(target=client_handler, args=(idnum, connection, client_address), daemon=True)
+    thread_list.append(thread)
+    thread.start()
 
 
-def client_handler(connection, address):
+def client_handler(idnum, connection, address):
   global client_data
   global player_count
   global live_idnums
@@ -112,6 +121,7 @@ def check_start_conditions():
         client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
       time.sleep(1)
       setup_game()
+      print('Starting game...')
       time.sleep(1)
       run_game()
 
@@ -144,6 +154,7 @@ def run_game():
   global live_idnums
   global connected_idnums
   global turn_idnum
+  global buffer
 
   #start the first turn
   turn_idnum = live_idnums[0]
@@ -151,7 +162,7 @@ def run_game():
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
   buffer = bytearray()
-
+  
   # Enter infinte loop for receiving chunks
   while True:
     print('current turn is:', turn_idnum)
@@ -159,59 +170,56 @@ def run_game():
     # ignore messages if its not the players turn
     chunk = client_data[turn_idnum]["connection"].recv(4096)
     print('data received from {}'.format(turn_idnum))
+    # this is where i need to have multiple threads all listening at the same time
+    # they should all receive chunks; ignore if chunk and not turn
+    # process non chunks immediately!!
+
     if not chunk:
       print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
       #this is how disconnections are received by the server
       
+      discon_idnum = turn_idnum
+
+      # notify all connected the player has been eliminated
+      for idnums in connected_idnums:
+        if idnums != discon_idnum:
+          try:
+            client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(discon_idnum).pack())
+          except:
+            print('player {} could not be informed that {} has been eliminated'.format(idnums, discon_idnum))
+
+      # notify all connected the player has left
+      for idnums in connected_idnums:
+        if idnums != discon_idnum:
+          try:
+            client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
+          except:
+            print('player {} could not be informed that {} has left the game'.format(idnums, discon_idnum))
+
       #remove player from game
       try:
         live_idnums.remove(turn_idnum)
       except:
-        print('turn_idnum {} not found in live_idnums'.format(turn_idnum))
+        print('discon_idnum {} not found in live_idnums'.format(discon_idnum))
 
       # remove player from connections list
       try:
-        connections.remove(turn_idnum)
+        connected_idnums.remove(discon_idnum)
       except:
-        print('turn_idnum {} not found in connected_idnums'.format(connected_idnums))
+        print('discon_idnum {} not found in connected_idnums'.format(connected_idnums))
 
-      # notify all connected the player has left
-      for idnums in connected_idnums:
-        try:
-          client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-          # client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(turn_idnum).pack())
-        except:
-          print('player {} could not be informed that {} has left'.format(idnums, turn_idnum))
 
-      # # notify other players this one has left  
-      # for idnums in connected_idnums:
-      #   try:
-      #     client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-      #   except:
-      #     connected_idnums.remove(idnums)
-      #     print('unknown player {} removed from connected_idnums'.format(idnums))
-      #     for idnumstwo in connected_idnums:
-      #       client_data[idnumstwo]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
 
-      # skip this players turn and proceed to next turns players message        
+    
+      # nothing more to do with disconnected player
+      # choose who plays next and process their chunk
       progress_turn()
       continue
-            
-      # #notify other players this one has left
-      # for idnums in connected_idnums:
-      #   try:
-      #     client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(turn_idnum).pack())
-      #     # needs elimination message?
-      #   except:
-      #     print('idnum {} apparently not connected'.format(idnums))
-        
 
-      #disappearing code test
-      #return
-
+    # extends the buffer with the chunk
     buffer.extend(chunk)
 
-    #infinite loop for
+    #infinite loop for processing messages messages
     while True:
       msg, consumed = tiles.read_message_from_bytearray(buffer)
       if not consumed:
@@ -306,6 +314,7 @@ def progress_turn():
   else:
     #in case last player eliminated self
     print(live_idnums)
+
     turn_idnum = live_idnums[0]
 
   print('after turn progression:')
