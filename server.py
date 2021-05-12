@@ -24,9 +24,10 @@ import time
 import threading
 import select
 
+
 REQ_PLAYERS = 2
-TIME_LIMIT = 5
-TIMER_ACTIVE = False
+TIME_LIMIT = 3
+TIMER_ACTIVE = True
 
 live_idnums = [] # list of players connected and in the game now
 connected_idnums = [] # all connected players
@@ -92,6 +93,7 @@ first_tile_placed = []
 
 
 def listen():
+  """Runs from new thread; listens for new clients attempting to connect"""
   global player_count
   global thread_list
   print('listening on {}'.format(sock.getsockname()))
@@ -102,12 +104,15 @@ def listen():
     print('received connection from {}'.format(client_address))
     idnum = player_count
     player_count += 1
+    #is threading necessary here?
+    #it just registers the client then halts
     thread = threading.Thread(target=client_handler, args=(idnum, connection, client_address), daemon=True)
     thread_list.append(thread)
     thread.start()
 
 
 def client_handler(idnum, connection, address):
+  """Runs from new thread; registers new client in lists and informs others of connection; updates view if game in progress"""
   global client_data
   global player_count
   global live_idnums
@@ -117,6 +122,7 @@ def client_handler(idnum, connection, address):
 
   host, port = address
   name = '{}:{}'.format(host, port)
+  hand = []
 
   idnum = player_count
   player_count += 1
@@ -126,17 +132,12 @@ def client_handler(idnum, connection, address):
   "address" : address,
   "host" : host,
   "port" : port,
-  "name" : name
+  "name" : name,
+  "hand" : hand
   }
 
   #send welcome message
   connection.send(tiles.MessageWelcome(idnum).pack())
-
-  # # TEST of message send method
-  # msg_obj = tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()
-  # message = Message(connected_idnums, idnum, msg_obj)
-  # message.forward()
-  # print('test lol')
 
   # inform other clients of this one
   for idnum_receiver in connected_idnums:
@@ -157,13 +158,15 @@ def client_handler(idnum, connection, address):
       if idnums not in live_idnums:
         client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
 
-    # notify client of all tiles already on board
-    # notify client of all token positions
+    # notify client of all tiles/tokens already on board
     for turn in turn_log:
       client_data[idnum]["connection"].send(turn.pack())
 
     # notify client real current turn
     client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+
+    # thread closes upon completion
+    # client now exists as entity registered to main process
 
 
 def check_start_conditions():
@@ -209,6 +212,10 @@ def setup_game():
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
       client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+      #update player's hand list
+      client_data[idnums]["hand"].append(tileid)
+    print('client {} hand: {}'.format(idnums, client_data[idnums]["hand"]))
+
 
 
 def run_game():
@@ -300,6 +307,7 @@ def run_game():
 
       # sent by the player to put a tile onto the board (all turns except second)
       if isinstance(msg, tiles.MessagePlaceTile):
+        #print('MessagePlaceTile:{}{}{}{}{}'.format(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum))
         if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
           process_msg(msg)
 
@@ -332,14 +340,36 @@ def process_msg(msg):
     turn_log.append(msg)
     update_and_notify()
 
+    #update hand
+    client_data[turn_idnum]["hand"].remove(msg.tileid)
+    print('tile {} removed from {}s hand'.format(msg.tileid, turn_idnum))
+
     # issue replacement tile to active player
     tileid = tiles.get_random_tileid()
     client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+
+    #update hand
+    client_data[turn_idnum]["hand"].append(tileid)
+    print('tile {} added to {}s hand'.format(tileid, turn_idnum))
+
+    print('{}s hand: {}'.format(turn_idnum, client_data[turn_idnum]["hand"]))
 
     progress_turn()
 
   # sent by the player in the second turn, to choose their token's starting path
   elif isinstance(msg, tiles.MessageMoveToken):
+    
+    #this doesnt seem to be required
+    for idnums in connected_idnums:
+      try:
+        client_data[idnums]["connection"].send(msg.pack())
+        print('token update sent to {}'.format(idnums))
+      except:
+        #observing player disconnected; remove from connected_idnums
+        print('missing connection removed')
+        connected_idnums.remove(idnums)
+        continue
+
     turn_log.append(msg)
     update_and_notify()
     progress_turn()
@@ -399,9 +429,9 @@ def progress_turn():
   global turn_idnum # players will be notified this player can make next turn
   global buffer
 
-  print('before turn progression:')
-  print('turn_idnum: ', turn_idnum )
-  print('live_idnums: ', live_idnums)
+  # print('before turn progression:')
+  # print('turn_idnum: ', turn_idnum )
+  # print('live_idnums: ', live_idnums)
 
   # progress the order & nominate next turn_idnum
   if turn_idnum in live_idnums:
@@ -410,18 +440,18 @@ def progress_turn():
     turn_idnum = live_idnums[0]
   else:
     #in case last player eliminated self
-    print(live_idnums)
-
+    # print(live_idnums)
     turn_idnum = live_idnums[0]
 
-  print('after turn progression:')
-  print('turn_idnum: ', turn_idnum )
-  print('live_idnums: ', live_idnums)
+  # print('after turn progression:')
+  # print('turn_idnum: ', turn_idnum )
+  # print('live_idnums: ', live_idnums)
 
   # Announce to every client it is this players turn
   for idnums in connected_idnums:
     try:
       client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+      print('players notified of new turn')
     except:
       connected_idnums.remove(idnums)
   
@@ -431,9 +461,9 @@ def progress_turn():
     move_thread.start()
 
 
-# if a player doesnt make a valid move within 10 seconds, the server makes a move for them
+# if a player doesnt make a valid move within TIMER_LIMIT seconds, the server makes a move for them
 def move_timer():
-  """ Runs in new thread based on turn; Makes a valid move for the player after 10 seconds """
+  """ Runs in new thread based on turn; Makes a valid move for the player after TIMER_LIMIT seconds """
   global turn_idnum
   print('move timer started for {}'.format(turn_idnum))
   tracked_idnum = turn_idnum
@@ -458,7 +488,7 @@ def force_move():
   global board
   global turn_log
 
-  random.seed(9)
+  random.seed(time.time())
   check = False
   checkcount = 0
 
@@ -478,10 +508,10 @@ def force_move():
         check = board.set_player_start_position(turn_idnum, x, y, position)
     else: 
     # tile placement required
-        x = random.randrange(0, 4)
-        y = random.randrange(0, 4)
-        tileid = tiles.get_random_tileid()
-        rotation = random.randrange(0, 3)
+        x = random.randrange(0, 5)
+        y = random.randrange(0, 5)
+        tileid = client_data[turn_idnum]["hand"][random.randrange(0,4)]
+        rotation = random.randrange(0, 4)
         checkcount += 1
         check = board.set_tile(x, y, tileid, rotation, turn_idnum)
 
@@ -512,6 +542,12 @@ def reset_game_state():
   global turn_idnum
   global game_in_progress
   global turn_log
+
+  #clear hands from any players in previous game
+  for idnums in game_start_idnums:
+    if idnums in connected_idnums:
+      client_data[idnums]["hand"].clear()
+
 
   live_idnums.clear()
   turn_log.clear()
