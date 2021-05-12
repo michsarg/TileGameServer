@@ -42,6 +42,7 @@ thread_list = []
 game_start_idnums = []
 turn_log = []
 first_tile_placed = []
+player_tilechanges = 0
 
 
 
@@ -123,6 +124,8 @@ def client_handler(idnum, connection, address):
   host, port = address
   name = '{}:{}'.format(host, port)
   hand = []
+  moves_played = 0
+  prev_tile = []
 
   idnum = player_count
   player_count += 1
@@ -133,7 +136,9 @@ def client_handler(idnum, connection, address):
   "host" : host,
   "port" : port,
   "name" : name,
-  "hand" : hand
+  "hand" : hand,
+  "moves_played" : moves_played,
+  "prev_tile" : prev_tile
   }
 
   #send welcome message
@@ -243,9 +248,9 @@ def run_game():
     print('current turn is:', turn_idnum)
 
     #clear buffer
-    print('buffer before clear={}'.format(len(buffer)))
-    buffer = buffer[:]
-    print('buffer after clear={}'.format(len(buffer)))
+    # print('buffer before clear={}'.format(len(buffer)))
+    # buffer = buffer[:]
+    # print('buffer after clear={}'.format(len(buffer)))
 
     # ignore messages if its not the players turn
     chunk = client_data[turn_idnum]["connection"].recv(4096)
@@ -351,15 +356,16 @@ def process_msg(msg):
     #update hand
     client_data[turn_idnum]["hand"].append(tileid)
     print('tile {} added to {}s hand'.format(tileid, turn_idnum))
-
     print('{}s hand: {}'.format(turn_idnum, client_data[turn_idnum]["hand"]))
 
+    #update moves_played counter
+    client_data[turn_idnum]["moves_played"] += 1
     progress_turn()
 
   # sent by the player in the second turn, to choose their token's starting path
   elif isinstance(msg, tiles.MessageMoveToken):
     
-    #this doesnt seem to be required
+    #this doesnt seem to be required???!?!?!??
     for idnums in connected_idnums:
       try:
         client_data[idnums]["connection"].send(msg.pack())
@@ -372,6 +378,8 @@ def process_msg(msg):
 
     turn_log.append(msg)
     update_and_notify()
+    #update moves_played counter
+    client_data[turn_idnum]["moves_played"] += 1
     progress_turn()
 
 
@@ -385,6 +393,20 @@ def update_and_notify():
   positionupdates, eliminated = board.do_player_movement(live_idnums)
 
   print('eliminated:{}'.format(eliminated))
+
+  # notify all clients of new token positions on board
+  # n.b. this was previously after elimination check
+  for idnums in connected_idnums:
+      for msg in positionupdates:
+        try:
+          turn_log.append(msg)
+          client_data[idnums]["connection"].send(msg.pack())
+        except:
+          #should never be reached as eliminated players are removed before this
+          print('player {} could not be informed of position updates'.format(idnums))
+          continue
+          #connected_idnums.remove(idnums)
+
 
   # notify all clients of eliminated players
   if len(eliminated) > 0:
@@ -403,17 +425,7 @@ def update_and_notify():
               print('player {} could not be informed of the elimination of {}'.format(idnums, elim))
               continue
 
-  # notify all clients of new token positions on board
-  for idnums in connected_idnums:
-      for msg in positionupdates:
-        try:
-          turn_log.append(msg)
-          client_data[idnums]["connection"].send(msg.pack())
-        except:
-          #should never be reached as eliminated players are removed before this
-          print('player {} could not be informed of position updates'.format(idnums))
-          continue
-          #connected_idnums.remove(idnums)
+
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
@@ -487,39 +499,50 @@ def force_move():
   global turn_idnum
   global board
   global turn_log
+  global client_data
 
   random.seed(time.time())
   check = False
   checkcount = 0
 
   #detect move type needed: tile or token
-  player_turncount = 0
-  for log_msg in turn_log:
-    if log_msg.idnum == turn_idnum:
-      player_turncount += 1
+  # player_turncount = 0
+  # for log_msg in turn_log:
+  #   if log_msg.idnum == turn_idnum:
+  #     player_turncount += 1
+  #print('moves_played:', client_data[turn_idnum]["moves_played"])
 
   while check == False:
-    if player_turncount == 1:
-    # token placement required
-        x = random.randrange(0, 4)
-        y = random.randrange(0, 4)
-        position = random.randrange(0, 7)
+    if client_data[turn_idnum]["moves_played"] == 1:
+    # if player_turncount == 1:
+    # if board.have_player_position(turn_idnum):
+        print('inside token loop')
+        # should be the location of the first tile
+        x = client_data[turn_idnum]["prev_tile"][0]
+        y = client_data[turn_idnum]["prev_tile"][1]
+        position = random.randrange(0, 8)
         checkcount += 1
         check = board.set_player_start_position(turn_idnum, x, y, position)
+
+        print(turn_idnum, x, y, position)
+        time.sleep(1)
+        random.seed(time.time())
     else: 
     # tile placement required
+        print('inside tile loop')
         x = random.randrange(0, 5)
         y = random.randrange(0, 5)
         tileid = client_data[turn_idnum]["hand"][random.randrange(0,4)]
         rotation = random.randrange(0, 4)
         checkcount += 1
+        client_data[turn_idnum]["prev_tile"] = [x, y]
         check = board.set_tile(x, y, tileid, rotation, turn_idnum)
 
   print('move has been forced')
   print('checkcount = {}'.format(checkcount))
-  print('player_turncount = {}'.format(player_turncount))
+  #print('player_turncount = {}'.format(player_turncount))
   #need to convert above into a msg
-  if player_turncount == 1:
+  if client_data[turn_idnum]["moves_played"] == 1:
     msg = tiles.MessageMoveToken(turn_idnum, x, y, position)
   else:
     msg = tiles.MessagePlaceTile(turn_idnum, tileid, rotation, x, y)
@@ -547,6 +570,7 @@ def reset_game_state():
   for idnums in game_start_idnums:
     if idnums in connected_idnums:
       client_data[idnums]["hand"].clear()
+      client_data[idnums]["moves_played"] = 0
 
 
   live_idnums.clear()
