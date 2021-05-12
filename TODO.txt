@@ -1,13 +1,17 @@
 TO DO:
 
-4 - Player Issues
-    Next, we should make the experience for players that join partway through an existing game, by helping them to catch up on the game state.
-
-
-BUGS TO SORT OUT:
-    OVERALL:
-         - Im having to use try/except to deal with disconnects. There needs to be a faster way to handle disconnects i.e. move queue
-
-    AUTOPLAYS:
-        - initial token placement NOT appearing on board, but is there in the logic
-        - tiles that are autoselected are not from the players hand
+TIER REVIEW:
+    1 - GOOD
+    2 - GOOD
+    3 - EXITING:
+        - exit during own turn  
+            - game not restarting properly when new join during game
+            - non playing players not in connected_idnums
+        - exit during others turn
+            - GOOD
+      - JOIN DURING GAME:
+            - GOOD
+    4 - CATCH UP GAME STATE 
+        - GOOD 
+      - AUTOPLAY 
+        - GOOD

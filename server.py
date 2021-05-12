@@ -25,7 +25,7 @@ import threading
 import select
 
 
-REQ_PLAYERS = 2
+REQ_PLAYERS = 4
 TIME_LIMIT = 3
 TIMER_ACTIVE = True
 
@@ -105,8 +105,7 @@ def listen():
     print('received connection from {}'.format(client_address))
     idnum = player_count
     player_count += 1
-    #is threading necessary here?
-    #it just registers the client then halts
+    #threading prevents interruption of main thread when player connects
     thread = threading.Thread(target=client_handler, args=(idnum, connection, client_address), daemon=True)
     thread_list.append(thread)
     thread.start()
@@ -188,7 +187,7 @@ def check_start_conditions():
       time.sleep(1)
       setup_game()
       print('Starting game...')
-      time.sleep(1)
+      #time.sleep(1)
       run_game()
 
 
@@ -525,7 +524,7 @@ def force_move():
         check = board.set_player_start_position(turn_idnum, x, y, position)
 
         print(turn_idnum, x, y, position)
-        time.sleep(1)
+        #time.sleep(1)
         random.seed(time.time())
     else: 
     # tile placement required
