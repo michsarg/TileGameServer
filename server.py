@@ -25,6 +25,8 @@ import threading
 import select
 
 REQ_PLAYERS = 2
+TIME_LIMIT = 5
+TIMER_ACTIVE = False
 
 live_idnums = [] # list of players connected and in the game now
 connected_idnums = [] # all connected players
@@ -39,6 +41,8 @@ thread_list = []
 game_start_idnums = []
 turn_log = []
 first_tile_placed = []
+
+
 
 # class Client:
 #   def __init__(self, connection, address):
@@ -145,32 +149,25 @@ def client_handler(idnum, connection, address):
   if game_in_progress == True:
 
     # notify client  of players who started current game
-    # using MessagePlayerTurn
     for idnums in game_start_idnums:
       client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(idnums).pack())
 
     # notify client of players eliminated from current game
-    # using MessagePlayerEliminated
     for idnums in game_start_idnums:
       if idnums not in live_idnums:
         client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
 
     # notify client of all tiles already on board
-    # using MessagePlaceTile
     # notify client of all token positions
-    # using MessageMoveToken
     for turn in turn_log:
       client_data[idnum]["connection"].send(turn.pack())
 
     # notify client real current turn
-    # using MessagePlayerTurn again
     client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
 
 
-
-    pass
-
 def check_start_conditions():
+  """run from main processs, checks global conditions to start a game"""
   while game_in_progress == False:
     if (len(connected_idnums) >= REQ_PLAYERS):
       for idnums in connected_idnums:
@@ -188,6 +185,7 @@ def check_start_conditions():
 
 
 def setup_game():
+  """run from main process, sets up game"""
   global live_idnums
   global connected_idnums
   global game_start_idnums
@@ -214,19 +212,22 @@ def setup_game():
 
 
 def run_game():
+  """run from main process, runs game"""
   global board
   global live_idnums
   global connected_idnums
   global turn_idnum
   global buffer
   global turn_log
+  global TIMER_ACTIVE
 
   #start the first turn
   turn_idnum = live_idnums[0]
   for idnums in connected_idnums:
     client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
   #move timer for first turn  
-  threading.Thread(target=move_timer, daemon=True).start()
+  if TIMER_ACTIVE == True:
+    threading.Thread(target=move_timer, daemon=True).start()
 
   buffer = bytearray()
   
@@ -234,12 +235,18 @@ def run_game():
   while True:
     print('current turn is:', turn_idnum)
 
+    #clear buffer
+    print('buffer before clear={}'.format(len(buffer)))
+    buffer = buffer[:]
+    print('buffer after clear={}'.format(len(buffer)))
+
     # ignore messages if its not the players turn
     chunk = client_data[turn_idnum]["connection"].recv(4096)
     print('data received from {}'.format(turn_idnum))
 
+    # not chunk represents signal of disconnection from server
     if not chunk:
-      #this is how disconnections are received by the server
+
       print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
       discon_idnum = turn_idnum
 
@@ -281,10 +288,12 @@ def run_game():
 
     #infinite loop for processing messages messages
     while True:
+      #attempts to read and unpack a single message from the buffer array
       msg, consumed = tiles.read_message_from_bytearray(buffer)
       if not consumed:
         break
 
+      #deletes everything before and including consumed:
       buffer = buffer[consumed:]
 
       print('received message {}'.format(msg))
@@ -385,8 +394,10 @@ def update_and_notify():
 
 def progress_turn():
   #determine whos turn it is
+  global TIMER_ACTIVE
   global live_idnums
   global turn_idnum # players will be notified this player can make next turn
+  global buffer
 
   print('before turn progression:')
   print('turn_idnum: ', turn_idnum )
@@ -414,23 +425,24 @@ def progress_turn():
     except:
       connected_idnums.remove(idnums)
   
-  #requires new thread
-  move_thread = threading.Thread(target=move_timer, daemon=True)
-  move_thread.start()
+  #initiate timer
+  if TIMER_ACTIVE == True:
+    move_thread = threading.Thread(target=move_timer, daemon=True)
+    move_thread.start()
 
 
 # if a player doesnt make a valid move within 10 seconds, the server makes a move for them
 def move_timer():
-  """ Makes a valid move for the player after 10 seconds """
+  """ Runs in new thread based on turn; Makes a valid move for the player after 10 seconds """
   global turn_idnum
   print('move timer started for {}'.format(turn_idnum))
   tracked_idnum = turn_idnum
   time_start = time.perf_counter()
-  timelimit = 3
+  global TIME_LIMIT
 
   while True:
     time_now = time.perf_counter()
-    if (time_now-time_start)>timelimit:
+    if (time_now-time_start)>TIME_LIMIT:
       print('times up!')
       force_move()
       break
@@ -440,6 +452,7 @@ def move_timer():
   print('leaving timer...')
 
 def force_move():
+  """Runs in move_timer thread based on turn; determines the move to be forced"""
   print('forced move starting')
   global turn_idnum
   global board

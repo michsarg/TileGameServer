@@ -5,7 +5,9 @@ TO DO:
 
 
 BUGS TO SORT OUT:
-    OVERALL - Im having to use try/except to deal with disconnects. There needs to be a faster way to handle disconnects i.e. move queue
+    OVERALL:
+         - Im having to use try/except to deal with disconnects. There needs to be a faster way to handle disconnects i.e. move queue
 
-    - implement message sending function
-        - checks for disconnection + reacts
+    AUTOPLAYS:
+        - initial token placement NOT appearing on board, but is there in the logic
+        - tiles that are autoselected are not from the players hand
