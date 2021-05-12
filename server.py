@@ -24,7 +24,7 @@ import time
 import threading
 import select
 
-REQ_PLAYERS = 4
+REQ_PLAYERS = 2
 
 live_idnums = [] # list of players connected and in the game now
 connected_idnums = [] # all connected players
@@ -37,9 +37,8 @@ player_count = 0
 buffer = bytearray()
 thread_list = []
 game_start_idnums = []
-tile_log = []
-token_log = []
 turn_log = []
+first_tile_placed = []
 
 # class Client:
 #   def __init__(self, connection, address):
@@ -220,8 +219,6 @@ def run_game():
   global connected_idnums
   global turn_idnum
   global buffer
-  global tile_log
-  global token_log
   global turn_log
 
   #start the first turn
@@ -242,9 +239,8 @@ def run_game():
     print('data received from {}'.format(turn_idnum))
 
     if not chunk:
-      print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
       #this is how disconnections are received by the server
-      
+      print('client {} disconnected'.format(client_data[turn_idnum]["address"]))
       discon_idnum = turn_idnum
 
       # notify all connected the player has been eliminated
@@ -296,42 +292,48 @@ def run_game():
       # sent by the player to put a tile onto the board (all turns except second)
       if isinstance(msg, tiles.MessagePlaceTile):
         if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
-
-          # inform all clients of newly placed tile
-          for idnums in connected_idnums:
-            try:
-              client_data[idnums]["connection"].send(msg.pack())
-            except:
-              #observing player disconnected; remove from connected_idnums
-              connected_idnums.remove(idnums)
-              continue
-
-          # save to tile placement log
-          turn_log.append(msg)
-
-          # update board and notify clients
-          update_and_notify()
-
-          # issue replacement tile to active player
-          tileid = tiles.get_random_tileid()
-          client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
-
-          #initiate the next turn in the game
-          progress_turn()
+          process_msg(msg)
 
       # sent by the player in the second turn, to choose their token's starting path
       elif isinstance(msg, tiles.MessageMoveToken):
         if not board.have_player_position(msg.idnum):
           if board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
+            process_msg(msg)
 
-            #save to token placement log
-            turn_log.append(msg)
-            
-            # update board and notify clients
-            update_and_notify()
 
-            # start next turn
-            progress_turn()
+def process_msg(msg):
+  """detects whether message is place tile or place token and triggers game updates and progression"""
+  global client_data
+  global connected_idnums
+  global turn_log
+  global board
+  # sent by the player to put a tile onto the board (all turns except second)
+  if isinstance(msg, tiles.MessagePlaceTile):
+
+    # inform all clients of newly placed tile
+    for idnums in connected_idnums:
+      try:
+        client_data[idnums]["connection"].send(msg.pack())
+      except:
+        #observing player disconnected; remove from connected_idnums
+        print('missing connection removed')
+        connected_idnums.remove(idnums)
+        continue
+
+    turn_log.append(msg)
+    update_and_notify()
+
+    # issue replacement tile to active player
+    tileid = tiles.get_random_tileid()
+    client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+
+    progress_turn()
+
+  # sent by the player in the second turn, to choose their token's starting path
+  elif isinstance(msg, tiles.MessageMoveToken):
+    turn_log.append(msg)
+    update_and_notify()
+    progress_turn()
 
 
 def update_and_notify():
@@ -417,37 +419,76 @@ def progress_turn():
   move_thread.start()
 
 
-
 # if a player doesnt make a valid move within 10 seconds, the server makes a move for them
 def move_timer():
   """ Makes a valid move for the player after 10 seconds """
   global turn_idnum
   print('move timer started for {}'.format(turn_idnum))
   tracked_idnum = turn_idnum
-  timer_running = True
   time_start = time.perf_counter()
+  timelimit = 3
 
-  while timer_running == True:
-    
+  while True:
     time_now = time.perf_counter()
-    
-    if (time_now-time_start)>10:
+    if (time_now-time_start)>timelimit:
       print('times up!')
-      #timer_running = False
+      force_move()
       break
-    
     if tracked_idnum != turn_idnum:
       print('move played!')
-      timer_running = False
-
+      break
   print('leaving timer...')
+
+def force_move():
+  print('forced move starting')
+  global turn_idnum
+  global board
+  global turn_log
+
+  random.seed(9)
+  check = False
+  checkcount = 0
+
+  #detect move type needed: tile or token
+  player_turncount = 0
+  for log_msg in turn_log:
+    if log_msg.idnum == turn_idnum:
+      player_turncount += 1
+
+  while check == False:
+    if player_turncount == 1:
+    # token placement required
+        x = random.randrange(0, 4)
+        y = random.randrange(0, 4)
+        position = random.randrange(0, 7)
+        checkcount += 1
+        check = board.set_player_start_position(turn_idnum, x, y, position)
+    else: 
+    # tile placement required
+        x = random.randrange(0, 4)
+        y = random.randrange(0, 4)
+        tileid = tiles.get_random_tileid()
+        rotation = random.randrange(0, 3)
+        checkcount += 1
+        check = board.set_tile(x, y, tileid, rotation, turn_idnum)
+
+  print('move has been forced')
+  print('checkcount = {}'.format(checkcount))
+  print('player_turncount = {}'.format(player_turncount))
+  #need to convert above into a msg
+  if player_turncount == 1:
+    msg = tiles.MessageMoveToken(turn_idnum, x, y, position)
+  else:
+    msg = tiles.MessagePlaceTile(turn_idnum, tileid, rotation, x, y)
+
+  #sends message for processing
+  process_msg(msg)
+
 
 def game_over():
   print('GAME OVER')
   time.sleep(1)
   # reset all global variables related to game
-
-
   reset_game_state()
   check_start_conditions()
 
