@@ -92,7 +92,18 @@ class Message:
     except Exception as e:
       print(e)
       print('message could not send, removing', self.receiver)
-      connected_idnums.remove(self.receiver)
+      #needs a thread here and locking!
+      removal_thread = threading.Thread(target=remove_client, args=(self.receiver))
+      removal_thread.start()
+      
+
+def remove_client(discon_idnum):
+  """fully removes a disconnected client from all processes so they can continue"""
+  
+
+
+  connected_idnums.remove(discon_idnum)
+  pass
 
 def listen():
   """Runs from new thread; listens for new clients attempting to connect"""

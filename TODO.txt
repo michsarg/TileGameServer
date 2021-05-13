@@ -32,3 +32,6 @@ CODE IMPROVEMENT -
 - elimination
     - i.e. at Line 431, do we still need a prev eliminated?
         - need to replay and watch eliminated list if its cleared each play
+
+- removal thread
+    - needs to be locked while removal is happening
