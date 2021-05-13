@@ -82,18 +82,17 @@ class Message:
   global connected_idnums
   global live_idnums
 
-  def __init__(self, receiver, msg, subject):
+  def __init__(self, receiver, data):
     self.receiver = receiver
-    self.msg = msg
-    self.subject = subject
-
+    self.data = data
 
   def transmit(self):
     try:
-      client_data[self.receiver]["connection"].send(self.msg, self.subject)
+        client_data[self.receiver]["connection"].send(self.data)
     except Exception as e:
-      print('message could not send')
       print(e)
+      print('message could not send, removing', self.receiver)
+      connected_idnums.remove(self.receiver)
 
 def listen():
   """Runs from new thread; listens for new clients attempting to connect"""
@@ -143,14 +142,18 @@ def client_handler(idnum, connection, address):
   }
 
   #send welcome message
-  #connection.send(tiles.MessageWelcome(idnum).pack())
+
   print('testing welcome message')
-  Message(idnum, (tiles.MessageWelcome(idnum).pack()), None).transmit()
+  #connection.send(tiles.MessageWelcome(idnum).pack())
+  Message(idnum, (tiles.MessageWelcome(idnum).pack())).transmit()
 
   # inform other clients of this one
   for idnum_receiver in connected_idnums:
-          client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
-          client_data[idnum]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack())
+          #client_data[idnum_receiver]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()) 
+          #client_data[idnum]["connection"].send(tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack())
+          Message(idnum_receiver, tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()).transmit()
+          Message(idnum, tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack()).transmit()
+
   # add to list of connected
   connected_idnums.append(idnum)
 
@@ -159,34 +162,41 @@ def client_handler(idnum, connection, address):
 
     # notify client  of players who started current game
     for idnums in game_start_idnums:
-      client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(idnums).pack())
+      #client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(idnums).pack())
+      Message(idnum, tiles.MessagePlayerTurn(idnums).pack()).transmit()
 
     # notify client of players eliminated from current game
     for idnums in game_start_idnums:
       if idnums not in live_idnums:
-        client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
+        #client_data[idnum]["connection"].send(tiles.MessagePlayerEliminated(idnums).pack())
+        Message(idnum, tiles.MessagePlayerEliminated(idnums).pack()).transmit()
 
     # notify client of all tiles/tokens already on board
     for turn in turn_log:
-      client_data[idnum]["connection"].send(turn.pack())
+      #client_data[idnum]["connection"].send(turn.pack())
+      Message(idnum, turn.pack()).transmit()
 
     # notify client real current turn
-    client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    #client_data[idnum]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    Message(idnum, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
 
     # thread closes upon completion
     # client now exists as entity registered to main process
-
+    #NEW MESSAGING SYSTEM WORKING - CHECKED UP TO HERE
 
 def check_start_conditions():
   """run from main processs, checks global conditions to start a game"""
   while game_in_progress == False:
     if (len(connected_idnums) >= REQ_PLAYERS):
       for idnums in connected_idnums:
-        try:
-          client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
-        except:
-          connected_idnums.remove(idnums)
-          continue
+        Message(idnums, tiles.MessageCountdown().pack()).transmit()
+
+        # try:
+        #  client_data[idnums]["connection"].send(tiles.MessageCountdown().pack())
+
+        # except:
+        #   connected_idnums.remove(idnums)
+        #   continue
 
       time.sleep(1)
       setup_game()
@@ -213,13 +223,15 @@ def setup_game():
 
   # sent start message
   for idnums in connected_idnums:
-    client_data[idnums]["connection"].send(tiles.MessageGameStart().pack())
+    #client_data[idnums]["connection"].send(tiles.MessageGameStart().pack())
+    Message(idnums, tiles.MessageGameStart().pack()).transmit()
 
   # distribute first tiles to players
   for idnums in live_idnums:
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
-      client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+      #client_data[idnums]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+      Message(idnums, tiles.MessageAddTileToHand(tileid).pack()).transmit()
       #update player's hand list
       client_data[idnums]["hand"].append(tileid)
     print('client {} hand: {}'.format(idnums, client_data[idnums]["hand"]))
@@ -239,7 +251,8 @@ def run_game():
   #start the first turn
   turn_idnum = live_idnums[0]
   for idnums in connected_idnums:
-    client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    #client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    Message(idnums, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
   #move timer for first turn  
   if TIMER_ACTIVE == True:
     threading.Thread(target=move_timer, daemon=True).start()
@@ -249,11 +262,6 @@ def run_game():
   # Enter infinte loop for receiving chunks
   while True:
     print('current turn is:', turn_idnum)
-
-    #clear buffer
-    # print('buffer before clear={}'.format(len(buffer)))
-    # buffer = buffer[:]
-    # print('buffer after clear={}'.format(len(buffer)))
 
     # ignore messages if its not the players turn
     chunk = client_data[turn_idnum]["connection"].recv(4096)
@@ -268,18 +276,20 @@ def run_game():
       # notify all connected the player has been eliminated
       for idnums in connected_idnums:
         if idnums != discon_idnum:
-          try:
-            client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(discon_idnum).pack())
-          except:
-            print('player {} could not be informed that {} has been eliminated'.format(idnums, discon_idnum))
+          Message(idnums, tiles.MessagePlayerEliminated(discon_idnum).pack()).transmit()
+          # try:
+            #client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(discon_idnum).pack())
+          # except:
+          #   print('player {} could not be informed that {} has been eliminated'.format(idnums, discon_idnum))
 
       # notify all connected the player has left
       for idnums in connected_idnums:
         if idnums != discon_idnum:
-          try:
-            client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
-          except:
-            print('player {} could not be informed that {} has left the game'.format(idnums, discon_idnum))
+          Message(idnums, tiles.MessagePlayerLeft(discon_idnum).pack()).transmit()
+          # try:
+          #   client_data[idnums]["connection"].send(tiles.MessagePlayerLeft(discon_idnum).pack())
+          # except:
+          #   print('player {} could not be informed that {} has left the game'.format(idnums, discon_idnum))
 
       #remove player from game
       try:
@@ -297,6 +307,8 @@ def run_game():
       # choose who plays next and process their chunk
       progress_turn()
       continue
+
+    #NEW MESSAGE SYSTEM TESTED UP TO HERE - breaks turn order if player quits off turn mid game
 
     # extends the buffer with the chunk
     buffer.extend(chunk)
@@ -337,29 +349,31 @@ def process_msg(msg):
 
     # inform all clients of newly placed tile
     for idnums in connected_idnums:
-      try:
-        client_data[idnums]["connection"].send(msg.pack())
-      except:
-        #observing player disconnected; remove from connected_idnums
-        print('missing connection removed')
-        connected_idnums.remove(idnums)
-        continue
+      Message(idnums, msg.pack()).transmit()
+      # try:
+      #   client_data[idnums]["connection"].send(msg.pack())
+      # except:
+      #   #observing player disconnected; remove from connected_idnums
+      #   print('missing connection removed')
+      #   connected_idnums.remove(idnums)
+      #   continue
 
     turn_log.append(msg)
     update_and_notify()
 
     #update hand
     client_data[turn_idnum]["hand"].remove(msg.tileid)
-    print('tile {} removed from {}s hand'.format(msg.tileid, turn_idnum))
+    #print('tile {} removed from {}s hand'.format(msg.tileid, turn_idnum))
 
     # issue replacement tile to active player
     tileid = tiles.get_random_tileid()
-    client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+    #client_data[turn_idnum]["connection"].send(tiles.MessageAddTileToHand(tileid).pack())
+    Message(turn_idnum, tiles.MessageAddTileToHand(tileid).pack()).transmit()
 
     #update hand
     client_data[turn_idnum]["hand"].append(tileid)
-    print('tile {} added to {}s hand'.format(tileid, turn_idnum))
-    print('{}s hand: {}'.format(turn_idnum, client_data[turn_idnum]["hand"]))
+    #print('tile {} added to {}s hand'.format(tileid, turn_idnum))
+    #print('{}s hand: {}'.format(turn_idnum, client_data[turn_idnum]["hand"]))
 
     #update moves_played counter
     client_data[turn_idnum]["moves_played"] += 1
@@ -370,14 +384,15 @@ def process_msg(msg):
     
     #this doesnt seem to be required???!?!?!??
     for idnums in connected_idnums:
-      try:
-        client_data[idnums]["connection"].send(msg.pack())
-        print('token update sent to {}'.format(idnums))
-      except:
-        #observing player disconnected; remove from connected_idnums
-        print('missing connection removed')
-        connected_idnums.remove(idnums)
-        continue
+      Message(idnums, msg.pack()).transmit()
+      # try:
+      #   client_data[idnums]["connection"].send(msg.pack())
+      #   print('token update sent to {}'.format(idnums))
+      # except:
+      #   #observing player disconnected; remove from connected_idnums
+      #   print('missing connection removed')
+      #   connected_idnums.remove(idnums)
+      #   continue
 
     turn_log.append(msg)
     update_and_notify()
@@ -399,16 +414,18 @@ def update_and_notify():
 
   # notify all clients of new token positions on board
   # n.b. this was previously after elimination check
-  for idnums in connected_idnums:
-      for msg in positionupdates:
-        try:
-          turn_log.append(msg)
-          client_data[idnums]["connection"].send(msg.pack())
-        except:
-          #should never be reached as eliminated players are removed before this
-          print('player {} could not be informed of position updates'.format(idnums))
-          continue
-          #connected_idnums.remove(idnums)
+  for msg in positionupdates:
+    turn_log.append(msg) # N.B. this has been moved up so updates only recorded once
+    for idnums in connected_idnums:
+        Message(idnums, msg.pack()).transmit()
+        # try:
+        #   turn_log.append(msg)
+        #   client_data[idnums]["connection"].send(msg.pack())
+        # except:
+        #   #should never be reached as eliminated players are removed before this
+        #   print('player {} could not be informed of position updates'.format(idnums))
+        #   continue
+        #   #connected_idnums.remove(idnums)
 
 
   # notify all clients of eliminated players
@@ -420,15 +437,14 @@ def update_and_notify():
           live_idnums.remove(elim)
           # all connected to be notified
           for idnums in connected_idnums:
-            try:
-              client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
-            except:
-              # this likly is not connected due to mulitple eliminations in the same turn
-              # this player will be removed when the eliminated list reaches them
-              print('player {} could not be informed of the elimination of {}'.format(idnums, elim))
-              continue
-
-
+            Message(idnums, tiles.MessagePlayerEliminated(elim).pack()).transmit()
+            # try:
+            #   client_data[idnums]["connection"].send(tiles.MessagePlayerEliminated(elim).pack())
+            # except:
+            #   # this likly is not connected due to mulitple eliminations in the same turn
+            #   # this player will be removed when the eliminated list reaches them
+            #   print('player {} could not be informed of the elimination of {}'.format(idnums, elim))
+            #   continue
 
   # check if a player has won the game
   if (len(live_idnums)) == 1:
@@ -464,11 +480,12 @@ def progress_turn():
 
   # Announce to every client it is this players turn
   for idnums in connected_idnums:
-    try:
-      client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
-      print('players notified of new turn')
-    except:
-      connected_idnums.remove(idnums)
+    Message(idnums, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
+    # try:
+    #   client_data[idnums]["connection"].send(tiles.MessagePlayerTurn(turn_idnum).pack())
+    #   print('players notified of new turn')
+    # except:
+    #   connected_idnums.remove(idnums)
   
   #initiate timer
   if TIMER_ACTIVE == True:

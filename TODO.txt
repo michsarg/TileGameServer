@@ -7,6 +7,7 @@ TIER REVIEW:
         - exit during own turn  
             - game not restarting properly when new join during game
             - non playing players not in connected_idnums
+            - hopefully this can be fixed with code improvments below
         - exit during others turn
             - GOOD
       - JOIN DURING GAME:
@@ -18,8 +19,16 @@ TIER REVIEW:
 
 CODE IMPROVEMENT - 
     CREATE SEND MESSAGE METHOD
-        - parameters: recipient, subject, msg
-        - single receiptient, subject, msg at a time
+        - parameters: recipient, msg
+        - single receiptient, msg at a time
         - this will allow single method where try catch needs to be implemented (good design!)
     CREATE BOARD CLASS
     CREATE PLAYER CLASS
+
+- review turn log process
+    - i.e. at Line 419 in update_and_notify does the turn log only need to be updated once??? YES
+        - this change has been made NEEDS TESTING
+
+- elimination
+    - i.e. at Line 431, do we still need a prev eliminated?
+        - need to replay and watch eliminated list if its cleared each play
