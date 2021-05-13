@@ -1,20 +1,3 @@
-# CITS3002 2021 Assignment
-#
-# This file implements a basic server that allows a single client to play a
-# single game with no other participants, and very little error checking.
-#
-# Any other clients that connect during this time will need to wait for the
-# first client's game to complete.
-#
-# Your task will be to write a new server that adds all connected clients into
-# a pool of players. When enough players are available (two or more), the server
-# will create a game with a random sample of those players (no more than
-# tiles.PLAYER_LIMIT players will be in any one game). Players will take turns
-# in an order determined by the server, continuing until the game is finished
-# (there are less than two players remaining). When the game is finished, if
-# there are enough players available the server will start a new game with a
-# new selection of clients.
-
 import socket
 import sys
 import tiles
@@ -24,6 +7,7 @@ import time
 import threading
 #import select
 import logging
+import queue
 
 logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
 
@@ -47,59 +31,59 @@ turn_log = []
 first_tile_placed = []
 player_tilechanges = 0
 
-
-
-class Client:
-  def __init__(self, connection, address):
-    self.connection = connection
-    self.address = address
-    self.host, self.port = self.address
-    self.name = '{}:{}'.format(self.host, self.port)
-
-  # host, port = address
-  # name = '{}:{}'.format(host, port)
-  # hand = []
-  # moves_played = 0
-  # prev_tile = []
-
-  # idnum = player_count
-  # player_count += 1
-
-  # client_data[idnum] = {
-  # "connection" : connection,
-  # "address" : address,
-  # "host" : host,
-  # "port" : port,
-  # "name" : name,
-  # "hand" : hand,
-  # "moves_played" : moves_played,
-  # "prev_tile" : prev_tile
-  # }
-
-# class Game:
-#   def __init__():
-#     self.board = tiles.Board()
-#     self.live_idnums = []
-#     self.connected_idnums = []
-#     self.turn_idnum = 0
-#     self.player_count = 0
-#     self.game_in_progress = False
-
-#   def add_player_to_game(player_idnum):
-#     live_idnums.append(player_idnum)
+class Server:
   
-#   def new_client_connected(connnection, address):
-#     player_idnum = player_count
-#     player_count += 1
-#     connected_idnums.append(player_idnum)
-#     player_idnum = Client(connection, address)
-#     # inform new and existing clients of each other
-#     for connected_clients in connected_idnums:
-#         receiving_client.connection.send(tiles.MessagePlayerJoined(player_idnum.name, int(player_idnum)).pack()) 
-#         player_idnum.connection.send(tiles.MessagePlayerJoined(connected_idnum.name, connected_idnum).pack())
-#     # send welcome message
-#     player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
+  def __init__(self, host, port):
+    self.host = host
+    self.port = port
+    self.num_of_threads = 4
+    self.thread_pool = []
+    self.task_queue = queue.Queue()
+  
+  # these workers will be running
+  def worker(self):
+    while True:
+      #retrieve task from queue
+      conn, msg = self.task_queue.get()
+      # receive data from socket?
+      received_data = conn.recv(4096)
+      #processes queue item
+      if received_data:
+        print(received_data)
+        conn.sendall(msg.encode())
+      #signal to worker task is done
+      self.task_queue.task_done()
 
+  def start(self):
+    # adds all the workers to the threadpool
+    for _i in range(self.num_of_threads):
+      thread = threading.Thread(target=self.worker, daemon=True)
+      #starts thread
+      thread.start()
+      #adds worker thread to thread pool
+      self.thread_pool.append(thread)
+
+    # opens socket connection and listens
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)        
+    sock.bind((self.host, self.port))
+    sock.listen()
+
+    i = 0
+    #main loop for processing incoming stuff
+    while True:
+        # when a connection is recevied
+        conn, addr = sock.accept()
+        # put these tasks  on the queue
+        if i % 2 == 0:
+            self.task_queue.put((conn, "Message 1"))
+        else:
+            self.task_queue.put((conn, "Message 2"))
+        i += 1
+
+
+
+# any call to transmit a message needs to be QUEUED~
+# these represent messages going OUT from server to client
 class Message:
   global client_data
   global connected_idnums
@@ -111,7 +95,7 @@ class Message:
 
   def transmit(self):
     try:
-        client_data[self.receiver]["connection"].send(self.data)
+      client_data[self.receiver]["connection"].send(self.data)
     except Exception as e:
       logging.debug(e)
       logging.debug('message could not send, removing', self.receiver)
@@ -123,9 +107,9 @@ def remove_client(discon_idnum):
   """fully removes an uncontactable/quit client from the game state"""
   
   # aquire lock
-  lock = threading.Lock()
-  lock.acquire()
-  logging.debug('Acquired a lock')
+  # lock = threading.Lock()
+  # lock.acquire()
+  # logging.debug('Acquired a lock')
 
   if discon_idnum in live_idnums:
     live_idnums.remove(discon_idnum)
@@ -144,8 +128,8 @@ def remove_client(discon_idnum):
   client_data.pop(discon_idnum)
 
   #release lock
-  logging.debug('Released a lock')
-  lock.release()
+  # logging.debug('Released a lock')
+  # lock.release()
 
 
 def listen():
@@ -169,9 +153,9 @@ def listen():
 def client_handler(idnum, connection, address):
   """Runs from new thread; registers new client in lists and informs others of connection; updates view if game in progress"""
   # aquire lock
-  lock = threading.Lock()
-  lock.acquire()
-  logging.debug('Acquired a lock')
+  # lock = threading.Lock()
+  # lock.acquire()
+  # logging.debug('Acquired a lock')
 
   global client_data
   global player_count
@@ -202,9 +186,9 @@ def client_handler(idnum, connection, address):
   "prev_tile_y" : prev_tile_y
   }
 
-  #release lock
-  logging.debug('Released a lock')
-  lock.release()
+  # #release lock
+  # logging.debug('Released a lock')
+  # lock.release()
 
   #send welcome message
   Message(idnum, (tiles.MessageWelcome(idnum).pack())).transmit()
