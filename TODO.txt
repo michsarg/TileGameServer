@@ -1,8 +1,14 @@
 TO DO:
 
-TIER REVIEW:
-    1 - GOOD
-    2 - GOOD
+TIER REVIEW AGAIN:
+    1 - 2 PLAYER GAME
+        - yes, the two player game works
+
+    2 - AUTO RESTART
+        - yes, the game will auto restart with randomly chosen players
+      - 4 PLAYER 
+        - BUGO ALERTO: after an in game elimination, the next turn player is skipped their turn
+    
     3 - EXITING:
         - exit during own turn  
             - game not restarting properly when new join during game
@@ -16,6 +22,9 @@ TIER REVIEW:
         - GOOD 
       - AUTOPLAY 
         - GOOD
+
+
+
 
 CODE IMPROVEMENT - 
     CREATE SEND MESSAGE METHOD

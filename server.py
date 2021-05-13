@@ -27,9 +27,9 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
 
-REQ_PLAYERS = 3
+REQ_PLAYERS = 4
 TIME_LIMIT = 3
-TIMER_ACTIVE = True
+TIMER_ACTIVE = False
 AUTO_RESTART = True
 
 live_idnums = [] # list of players connected and in the game now
@@ -46,7 +46,6 @@ game_start_idnums = []
 turn_log = []
 first_tile_placed = []
 player_tilechanges = 0
-
 
 
 class Client:
@@ -245,7 +244,7 @@ def check_start_conditions():
     if (len(connected_idnums) >= REQ_PLAYERS):
       for idnums in connected_idnums:
         Message(idnums, tiles.MessageCountdown().pack()).transmit()
-      time.sleep(1)
+      #time.sleep(1)
       setup_game()
       print('Starting game...')
       #time.sleep(1)
@@ -323,7 +322,7 @@ def run_game():
 
       # nothing more to do with disconnected player
       # choose who plays next and process their chunk
-      progress_turn()
+      #progress_turn()
       continue
 
     # extends the buffer with the chunk
@@ -451,14 +450,24 @@ def update_and_notify():
 
 def progress_turn():
   #determine whos turn it is
+  logging.debug("progress_turn called")
   global TIMER_ACTIVE
   global live_idnums
   global turn_idnum 
 
+  logging.debug("turn_idnum before progression:{}".format(turn_idnum))
+  logging.debug("live_idnums:{}".format(live_idnums))
   # depends on receiving accurate live_idnum list
-  turn_idnum = live_idnums.pop(0)
-  live_idnums.append(turn_idnum)
-  turn_idnum = live_idnums[0]
+  if turn_idnum in live_idnums:
+    turn_idnum = live_idnums.pop(0)
+    live_idnums.append(turn_idnum)
+    turn_idnum = live_idnums[0]
+  else:
+    turn_idnum = live_idnums[0]
+
+
+  logging.debug("turn_idnum before progression:{}".format(turn_idnum))
+  logging.debug("live_idnums:{}".format(live_idnums))
 
   # Announce to every client it is this players turn
   for idnums in connected_idnums:
@@ -539,6 +548,7 @@ def game_over():
   # reset all global variables related to game
   reset_game_state()
   if AUTO_RESTART == True:
+    time.sleep(3)
     check_start_conditions()
 
 
