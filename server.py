@@ -16,20 +16,18 @@
 # new selection of clients.
 
 import socket
-import sys
 import tiles
 import random
 import copy
 import time
 import threading
-#import select
 import logging
 
 logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
 
-REQ_PLAYERS = 4
-TIME_LIMIT = 3
-TIMER_ACTIVE = False
+REQ_PLAYERS = 2
+TIME_LIMIT = 10
+TIMER_ACTIVE = True
 AUTO_RESTART = True
 
 live_idnums = [] # list of players connected and in the game now
@@ -41,7 +39,6 @@ turn_idnum = -1
 game_in_progress = False
 player_count = 0
 buffer = bytearray()
-thread_list = []
 game_start_idnums = []
 turn_log = []
 first_tile_placed = []
@@ -109,19 +106,16 @@ class Message:
     self.data = data
 
   def transmit(self):
+    """sends a message or removes the recipient client if they are disconnected"""
     try:
         client_data[self.receiver]["connection"].send(self.data)
-    except Exception as e:
-      logging.debug(e)
-      logging.debug('message could not send, removing', self.receiver)
-      #needs a thread here and locking!
+    except:
       removal_thread = threading.Thread(target=remove_client, args=(self.receiver))
       removal_thread.start()
 
 def remove_client(discon_idnum):
   """fully removes an uncontactable/quit client from the game state"""
   
-  # aquire lock
   lock = threading.Lock()
   lock.acquire()
   logging.debug('Acquired a lock')
@@ -129,20 +123,18 @@ def remove_client(discon_idnum):
   if discon_idnum in live_idnums:
     live_idnums.remove(discon_idnum)
     
-    #BELOW NOTIFICATIONS MOVED INTO SAME LOOP
-    
-    # notify all connected the player has been eliminated
-    # notify all connected the player has left
+    # notify all connected the player has been eliminated & left
     for idnums in connected_idnums:
       if idnums != discon_idnum:
         Message(idnums, tiles.MessagePlayerEliminated(discon_idnum).pack()).transmit()
         Message(idnums, tiles.MessagePlayerLeft(discon_idnum).pack()).transmit()
   
   connected_idnums.remove(discon_idnum)
-  #remove entry from client_data dictionary
   client_data.pop(discon_idnum)
 
-  #release lock
+  if discon_idnum == turn_idnum:
+    progress_turn()
+  
   logging.debug('Released a lock')
   lock.release()
 
@@ -150,7 +142,6 @@ def remove_client(discon_idnum):
 def listen():
   """Runs from new thread; listens for new clients attempting to connect"""
   global player_count
-  global thread_list
   print('listening on {}'.format(sock.getsockname()))
   sock.listen(5)
 
@@ -160,14 +151,11 @@ def listen():
     idnum = player_count
     player_count += 1
     #threading prevents interruption of main thread when player connects
-    thread = threading.Thread(target=client_handler, args=(idnum, connection, client_address), daemon=True)
-    thread_list.append(thread)
-    thread.start()
+    threading.Thread(target=client_handler, args=(idnum, connection, client_address), daemon=True).start()
 
 
 def client_handler(idnum, connection, address):
-  """Runs from new thread; registers new client in lists and informs others of connection; updates view if game in progress"""
-  # aquire lock
+  """Runs from new thread; registers new client in lists and informs others of connection, updates view if game in progress"""
   lock = threading.Lock()
   lock.acquire()
   logging.debug('Acquired a lock')
@@ -201,14 +189,11 @@ def client_handler(idnum, connection, address):
   "prev_tile_y" : prev_tile_y
   }
 
-  #release lock
   logging.debug('Released a lock')
   lock.release()
 
-  #send welcome message
+  #send welcome message & inform this client of others and others of this
   Message(idnum, (tiles.MessageWelcome(idnum).pack())).transmit()
-
-  # inform other clients of this one
   for idnum_receiver in connected_idnums:
           Message(idnum_receiver, tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()).transmit()
           Message(idnum, tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack()).transmit()
@@ -216,10 +201,10 @@ def client_handler(idnum, connection, address):
   # add to list of connected
   connected_idnums.append(idnum)
 
-  #Tier4: update here to inform new conection of current game
+  # Inform new connection of progress of current game
   if game_in_progress == True:
 
-    # notify client  of players who started current game
+    # notify client of players who started current game
     for idnums in game_start_idnums:
       Message(idnum, tiles.MessagePlayerTurn(idnums).pack()).transmit()
 
@@ -235,8 +220,6 @@ def client_handler(idnum, connection, address):
     # notify client real current turn
     Message(idnum, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
 
-    # thread closes upon completion
-    # client now exists as entity registered to main process
 
 def check_start_conditions():
   """run from main processs, checks global conditions to start a game"""
@@ -289,6 +272,7 @@ def run_game():
   global buffer
   global turn_log
   global TIMER_ACTIVE
+  global chunk
 
   #start the first turn
   turn_idnum = live_idnums[0]
@@ -306,22 +290,19 @@ def run_game():
     #logging.debug('current turn is:', turn_idnum)
 
     # ignore messages if its not the players turn
-    chunk = client_data[turn_idnum]["connection"].recv(4096)
+    try:
+      chunk = client_data[turn_idnum]["connection"].recv(4096)
+    except:
+      remove_client(turn_idnum)
+      continue
     logging.debug('data received from {}'.format(turn_idnum))
 
     # not chunk represents signal of disconnection from server
     if not chunk:
 
       logging.debug('client {} disconnected'.format(client_data[turn_idnum]["address"]))
-            
-      #notifications moved to remove_client method
-      #remove player from game state
-      # be careful here! yes, its right
-      # the right thing to do here is treat a not chunk received the same as non-contactable disconnection
+      # note: client can return to viewing updates in connected; not same as quitting game
       remove_client(turn_idnum)
-
-      # nothing more to do with disconnected player
-      # choose who plays next and process their chunk
       #progress_turn()
       continue
 
@@ -453,10 +434,9 @@ def progress_turn():
   logging.debug("progress_turn called")
   global TIMER_ACTIVE
   global live_idnums
-  global turn_idnum 
+  global turn_idnum
+  global chunk
 
-  logging.debug("turn_idnum before progression:{}".format(turn_idnum))
-  logging.debug("live_idnums:{}".format(live_idnums))
   # depends on receiving accurate live_idnum list
   if turn_idnum in live_idnums:
     turn_idnum = live_idnums.pop(0)
@@ -474,29 +454,31 @@ def progress_turn():
     Message(idnums, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
 
   #initiate timer
+  #while timer thread is active, this thread moves on to....
   if TIMER_ACTIVE == True:
-    move_thread = threading.Thread(target=move_timer, daemon=True)
-    move_thread.start()
+    threading.Thread(target=move_timer, daemon=True).start()
 
 
 # if a player doesnt make a valid move within TIMER_LIMIT seconds, the server makes a move for them
 def move_timer():
   """ Runs in new thread based on turn; Makes a valid move for the player after TIMER_LIMIT seconds """
+  global TIME_LIMIT
   global turn_idnum
-  #logging.debug('move timer started for {}'.format(turn_idnum))
   tracked_idnum = turn_idnum
   time_start = time.perf_counter()
-  global TIME_LIMIT
+  run_timer = True
 
-  while True:
+  while run_timer == True:
+    # cancel timer if move is made
+    if tracked_idnum != turn_idnum:
+      logging.debug('move played!')
+      run_timer = False
     time_now = time.perf_counter()
     if (time_now-time_start)>TIME_LIMIT:
-      #logging.debug('times up!')
+      logging.debug('times up!')
       force_move()
-      break
-    if tracked_idnum != turn_idnum:
-      #logging.dbug('move played!')
-      break
+      run_timer = False
+
 
 def force_move():
   """Runs in move_timer thread based on turn; determines the move to be forced"""

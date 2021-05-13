@@ -7,23 +7,22 @@ TIER REVIEW AGAIN:
     2 - AUTO RESTART
         - yes, the game will auto restart with randomly chosen players
       - 4 PLAYER 
-        - BUGO ALERTO: after an in game elimination, the next turn player is skipped their turn
+        - Yes, works after elimination on self turn or other turn
     
     3 - EXITING:
         - exit during own turn  
-            - game not restarting properly when new join during game
-            - non playing players not in connected_idnums
-            - hopefully this can be fixed with code improvments below
-        - exit during others turn
-            - GOOD
+            - if first player exits during first tile placement, next player gets win message BUT game progresses properly MAYBE OK!
+            - if first player exits during token selection, OK!
+            - if two players left, and non turn exits, other player wins on tile placement OK!
+            - on or off turn for secondary tile placement OK!
+            - mostly OK!
       - JOIN DURING GAME:
-            - GOOD
+            - turn progresses properly, no problem with restart OK!
     4 - CATCH UP GAME STATE 
         - GOOD 
       - AUTOPLAY 
-        - GOOD
-
-
+        - works with no manual players
+        - mix of manual and auto... sometimes works sometimes doesnt! wtf!
 
 
 CODE IMPROVEMENT - 
