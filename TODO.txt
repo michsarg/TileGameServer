@@ -15,3 +15,11 @@ TIER REVIEW:
         - GOOD 
       - AUTOPLAY 
         - GOOD
+
+CODE IMPROVEMENT - 
+    CREATE SEND MESSAGE METHOD
+        - parameters: recipient, subject, msg
+        - single receiptient, subject, msg at a time
+        - this will allow single method where try catch needs to be implemented (good design!)
+    CREATE BOARD CLASS
+    CREATE PLAYER CLASS

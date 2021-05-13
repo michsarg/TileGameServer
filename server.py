@@ -77,21 +77,23 @@ player_tilechanges = 0
 #     # send welcome message
 #     player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
 
-# class Message:
-#   global client_data
-#   global connected_idnums
-#   global live_idnums
+class Message:
+  global client_data
+  global connected_idnums
+  global live_idnums
 
-#   def __init__(self, receiver, subject, msg):
-#     self.receiver = receiver
-#     self.subject = subject
-#     self.msg = msg
-
-#   def forward(self):
-#     for rec_idnum in self.receiver:
-#       client_data[rec_idnum]["connection"].send(message)
+  def __init__(self, receiver, msg, subject):
+    self.receiver = receiver
+    self.msg = msg
+    self.subject = subject
 
 
+  def transmit(self):
+    try:
+      client_data[self.receiver]["connection"].send(self.msg, self.subject)
+    except Exception as e:
+      print('message could not send')
+      print(e)
 
 def listen():
   """Runs from new thread; listens for new clients attempting to connect"""
@@ -141,7 +143,9 @@ def client_handler(idnum, connection, address):
   }
 
   #send welcome message
-  connection.send(tiles.MessageWelcome(idnum).pack())
+  #connection.send(tiles.MessageWelcome(idnum).pack())
+  print('testing welcome message')
+  Message(idnum, (tiles.MessageWelcome(idnum).pack()), None).transmit()
 
   # inform other clients of this one
   for idnum_receiver in connected_idnums:
