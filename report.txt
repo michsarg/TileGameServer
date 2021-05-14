@@ -1,0 +1,19 @@
+CITS3002 Networking Project Report 2021
+Michael Sargeant ()
+
+How would you scale up your solution to handle many more clients?
+I would implement a thread pool and task queue to scale up my solution to handle more clients. My solution currently avoids race conditions by using thread locking. It works by using the main process to run the game, a thread to listen for new connections, a thread for communication between server and each connected client, and lockable threads that are activated when a client is recognised as connecting or disconnecting. These threads are locked to prevent corruption of the data in the main game processing which relies on accurate lists of observers and players. Scaling up to include more many players and observers would overwhelm this system causing connection timeouts and corrupted data, and the server ultimately crashing. A thread pool with a queue could manage tasks more efficeintl one after the other.
+
+How could you deal with identical messages arriving simultaneously on the same socket?
+I don't belive they could arrive exactly simultaneously, as there would have to be some difference between them. However if simultaneous arrival was possible, some arbitrary order could be decided then both could be put in a buffer or queue and processed in turn. A log of past messages could easily detect if one had been sent twice, and then the second could be ignored. Alternatively, the first message could be processed and then the second ignored because it no longer accurately applies to the game state. For example, if there were two disconnection messages for the same player, the second could easily be recognised as irrelevant because there is no one to disconnect.
+
+With  reference  to  your  project,  what  are  some  of  the  key  differences  between  designing  network programs, and other programs you have developed?
+
+
+What are the limitations of your current implementation (e.g. scale, performance, complexity)?
+
+
+Is there any other implementations outside the scope of this project you would like to mention?
+
+
+Any other notable things to discuss.

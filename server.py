@@ -1,19 +1,5 @@
 # CITS3002 2021 Assignment
-#
-# This file implements a basic server that allows a single client to play a
-# single game with no other participants, and very little error checking.
-#
-# Any other clients that connect during this time will need to wait for the
-# first client's game to complete.
-#
-# Your task will be to write a new server that adds all connected clients into
-# a pool of players. When enough players are available (two or more), the server
-# will create a game with a random sample of those players (no more than
-# tiles.PLAYER_LIMIT players will be in any one game). Players will take turns
-# in an order determined by the server, continuing until the game is finished
-# (there are less than two players remaining). When the game is finished, if
-# there are enough players available the server will start a new game with a
-# new selection of clients.
+# Michael Sargeant 22737938
 
 import socket
 import tiles
@@ -23,83 +9,48 @@ import time
 import threading
 import logging
 
-logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
+PLAYER_LIMIT = 3
 
-REQ_PLAYERS = 2
-TIME_LIMIT = 10
-TIMER_ACTIVE = True
 AUTO_RESTART = True
+RESTART_WAIT = 3
 
-live_idnums = [] # list of players connected and in the game now
-connected_idnums = [] # all connected players
-eliminated = []
-client_data = {}
-board = tiles.Board()
-turn_idnum = -1
-game_in_progress = False
-player_count = 0
-buffer = bytearray()
-game_start_idnums = []
-turn_log = []
-first_tile_placed = []
-player_tilechanges = 0
+AUTO_PLAY = True
+TIME_LIMIT = 10
 
 
-class Client:
-  def __init__(self, connection, address):
-    self.connection = connection
-    self.address = address
-    self.host, self.port = self.address
-    self.name = '{}:{}'.format(self.host, self.port)
+class Game_State:
+  def __init__(self):
+    """holds shared variables required for running the current game"""
+    self.live_idnums = []
+    self.connected_idnums = []
+    self.eliminated = []
+    self.client_data = {}
+    self.board = tiles.Board()
+    self.turn_idnum = -1
+    self.game_in_progress = False
+    self.player_count = 0
+    self.buffer = bytearray()
+    self.game_start_idnums = []
+    self.turn_log = []
+    logging.debug("game state created")
 
-  # host, port = address
-  # name = '{}:{}'.format(host, port)
-  # hand = []
-  # moves_played = 0
-  # prev_tile = []
 
-  # idnum = player_count
-  # player_count += 1
-
-  # client_data[idnum] = {
-  # "connection" : connection,
-  # "address" : address,
-  # "host" : host,
-  # "port" : port,
-  # "name" : name,
-  # "hand" : hand,
-  # "moves_played" : moves_played,
-  # "prev_tile" : prev_tile
-  # }
-
-# class Game:
-#   def __init__():
-#     self.board = tiles.Board()
-#     self.live_idnums = []
-#     self.connected_idnums = []
-#     self.turn_idnum = 0
-#     self.player_count = 0
-#     self.game_in_progress = False
-
-#   def add_player_to_game(player_idnum):
-#     live_idnums.append(player_idnum)
-  
-#   def new_client_connected(connnection, address):
-#     player_idnum = player_count
-#     player_count += 1
-#     connected_idnums.append(player_idnum)
-#     player_idnum = Client(connection, address)
-#     # inform new and existing clients of each other
-#     for connected_clients in connected_idnums:
-#         receiving_client.connection.send(tiles.MessagePlayerJoined(player_idnum.name, int(player_idnum)).pack()) 
-#         player_idnum.connection.send(tiles.MessagePlayerJoined(connected_idnum.name, connected_idnum).pack())
-#     # send welcome message
-#     player_idnum.connection.send(tiles.MessageWelcome(player_idnum).pack())
+#LESS IMPORTANT TO GET CLIENT INTO CLASS BECAUSE ITS ALREADY IN DICTIONARY
+# class Client:
+#   def __init__(self, connection, address):
+#     self.connection = connection
+#     self.address = address
+#     self.host, self.port = self.address
+#     self.name = '{}:{}'.format(self.host, self.port)
+#     self.hand = []
+#     self.moves_played = 0
+#     self.prev_tile_x = -1
+#     self.prev_tile_y = -1
 
 class Message:
-  global client_data
-  global connected_idnums
-  global live_idnums
+  """handles a message to be transmitted to detect disconnected reciptients"""
+  global game
+  # global client_data
 
   def __init__(self, receiver, data):
     self.receiver = receiver
@@ -108,31 +59,32 @@ class Message:
   def transmit(self):
     """sends a message or removes the recipient client if they are disconnected"""
     try:
-        client_data[self.receiver]["connection"].send(self.data)
+        game.client_data[self.receiver]["connection"].send(self.data)
     except:
-      removal_thread = threading.Thread(target=remove_client, args=(self.receiver))
-      removal_thread.start()
+      threading.Thread(target=remove_client, args=(self.receiver)).start()
+
 
 def remove_client(discon_idnum):
   """fully removes an uncontactable/quit client from the game state"""
-  
+  global game
+
   lock = threading.Lock()
   lock.acquire()
   logging.debug('Acquired a lock')
 
-  if discon_idnum in live_idnums:
-    live_idnums.remove(discon_idnum)
+  if discon_idnum in game.live_idnums:
+    game.live_idnums.remove(discon_idnum)
     
     # notify all connected the player has been eliminated & left
-    for idnums in connected_idnums:
+    for idnums in game.connected_idnums:
       if idnums != discon_idnum:
         Message(idnums, tiles.MessagePlayerEliminated(discon_idnum).pack()).transmit()
         Message(idnums, tiles.MessagePlayerLeft(discon_idnum).pack()).transmit()
   
-  connected_idnums.remove(discon_idnum)
-  client_data.pop(discon_idnum)
+  game.connected_idnums.remove(discon_idnum)
+  game.client_data.pop(discon_idnum)
 
-  if discon_idnum == turn_idnum:
+  if discon_idnum == game.turn_idnum:
     progress_turn()
   
   logging.debug('Released a lock')
@@ -141,16 +93,16 @@ def remove_client(discon_idnum):
 
 def listen():
   """Runs from new thread; listens for new clients attempting to connect"""
-  global player_count
+  global game
   print('listening on {}'.format(sock.getsockname()))
   sock.listen(5)
 
   while True:
     connection, client_address = sock.accept()
     print('received connection from {}'.format(client_address))
-    idnum = player_count
-    player_count += 1
-    #threading prevents interruption of main thread when player connects
+    idnum = game.player_count
+    game.player_count += 1
+    #threading prevents corruption of main thread when player connects
     threading.Thread(target=client_handler, args=(idnum, connection, client_address), daemon=True).start()
 
 
@@ -160,12 +112,7 @@ def client_handler(idnum, connection, address):
   lock.acquire()
   logging.debug('Acquired a lock')
 
-  global client_data
-  global player_count
-  global live_idnums
-  global game_start_idnums
-  global game_in_progress
-  global tile_log
+  global game
 
   host, port = address
   name = '{}:{}'.format(host, port)
@@ -173,11 +120,12 @@ def client_handler(idnum, connection, address):
   moves_played = 0
   prev_tile_x = -1
   prev_tile_y = -1
+  timed_play = False
 
-  idnum = player_count
-  player_count += 1
+  idnum = game.player_count
+  game.player_count += 1
 
-  client_data[idnum] = {
+  game.client_data[idnum] = {
   "connection" : connection,
   "address" : address,
   "host" : host,
@@ -186,7 +134,8 @@ def client_handler(idnum, connection, address):
   "hand" : hand,
   "moves_played" : moves_played,
   "prev_tile_x" : prev_tile_x,
-  "prev_tile_y" : prev_tile_y
+  "prev_tile_y" : prev_tile_y,
+  "timed_play" : timed_play
   }
 
   logging.debug('Released a lock')
@@ -194,228 +143,203 @@ def client_handler(idnum, connection, address):
 
   #send welcome message & inform this client of others and others of this
   Message(idnum, (tiles.MessageWelcome(idnum).pack())).transmit()
-  for idnum_receiver in connected_idnums:
-          Message(idnum_receiver, tiles.MessagePlayerJoined(client_data[idnum]["name"], idnum).pack()).transmit()
-          Message(idnum, tiles.MessagePlayerJoined(client_data[idnum_receiver]["name"], idnum_receiver).pack()).transmit()
+  for idnum_receiver in game.connected_idnums:
+          Message(idnum_receiver, tiles.MessagePlayerJoined(game.client_data[idnum]["name"], idnum).pack()).transmit()
+          Message(idnum, tiles.MessagePlayerJoined(game.client_data[idnum_receiver]["name"], idnum_receiver).pack()).transmit()
 
   # add to list of connected
-  connected_idnums.append(idnum)
+  game.connected_idnums.append(idnum)
 
   # Inform new connection of progress of current game
-  if game_in_progress == True:
+  if game.game_in_progress == True:
 
     # notify client of players who started current game
-    for idnums in game_start_idnums:
+    for idnums in game.game_start_idnums:
       Message(idnum, tiles.MessagePlayerTurn(idnums).pack()).transmit()
 
     # notify client of players eliminated from current game
-    for idnums in game_start_idnums:
-      if idnums not in live_idnums:
+    for idnums in game.game_start_idnums:
+      if idnums not in game.live_idnums:
         Message(idnum, tiles.MessagePlayerEliminated(idnums).pack()).transmit()
 
     # notify client of all tiles/tokens already on board
-    for turn in turn_log:
+    for turn in game.turn_log:
       Message(idnum, turn.pack()).transmit()
 
     # notify client real current turn
-    Message(idnum, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
+    Message(idnum, tiles.MessagePlayerTurn(game.turn_idnum).pack()).transmit()
 
 
 def check_start_conditions():
   """run from main processs, checks global conditions to start a game"""
-  while game_in_progress == False:
-    if (len(connected_idnums) >= REQ_PLAYERS):
-      for idnums in connected_idnums:
+  global game
+
+  while game.game_in_progress == False:
+    if (len(game.connected_idnums) >= PLAYER_LIMIT):
+      for idnums in game.connected_idnums:
         Message(idnums, tiles.MessageCountdown().pack()).transmit()
-      #time.sleep(1)
       setup_game()
       print('Starting game...')
-      #time.sleep(1)
       run_game()
 
 
 def setup_game():
   """run from main process, sets up game"""
-  global live_idnums
-  global connected_idnums
-  global game_start_idnums
-  global game_in_progress
-  game_in_progress = True
+  global game
+  game.game_in_progress = True
 
   #select players to add to game & create live_idnums, game_start_idnums
-  live_idnums = copy.deepcopy(connected_idnums)
-  random.shuffle(live_idnums)
-  while len(live_idnums) > REQ_PLAYERS:
-    live_idnums.pop(len(live_idnums)-1)
-  game_start_idnums = copy.deepcopy(live_idnums)
+  game.live_idnums = copy.deepcopy(game.connected_idnums)
+  random.shuffle(game.live_idnums)
+  while len(game.live_idnums) > PLAYER_LIMIT:
+    game.live_idnums.pop(len(game.live_idnums)-1)
+  game.game_start_idnums = copy.deepcopy(game.live_idnums)
 
   # sent start message
-  for idnums in connected_idnums:
+  for idnums in game.connected_idnums:
     Message(idnums, tiles.MessageGameStart().pack()).transmit()
 
   # distribute first tiles to players
-  for idnums in live_idnums:
+  for idnums in game.live_idnums:
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
       Message(idnums, tiles.MessageAddTileToHand(tileid).pack()).transmit()
       #update player's hand list
-      client_data[idnums]["hand"].append(tileid)
-    logging.debug('client {} hand: {}'.format(idnums, client_data[idnums]["hand"]))
+      game.client_data[idnums]["hand"].append(tileid)
+    logging.debug('client {} hand: {}'.format(idnums, game.client_data[idnums]["hand"]))
 
 
 def run_game():
-  """run from main process, runs game"""
-  global board
-  global live_idnums
-  global connected_idnums
-  global turn_idnum
-  global buffer
-  global turn_log
-  global TIMER_ACTIVE
-  global chunk
+  """Handles running of the game; runs in main process"""
+ 
+  global game
+  global AUTO_PLAY
 
-  #start the first turn
-  turn_idnum = live_idnums[0]
-  for idnums in connected_idnums:
-    Message(idnums, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
-
-  #move timer for first turn  
-  if TIMER_ACTIVE == True:
+  # initiate first turn outside of loop
+  game.turn_idnum = game.live_idnums[0]
+  for idnums in game.connected_idnums:
+    Message(idnums, tiles.MessagePlayerTurn(game.turn_idnum).pack()).transmit()
+  if AUTO_PLAY == True:
     threading.Thread(target=move_timer, daemon=True).start()
 
-  buffer = bytearray()
+  game.buffer = bytearray()
   
   # Enter infinte loop for receiving chunks
   while True:
-    #logging.debug('current turn is:', turn_idnum)
 
     # ignore messages if its not the players turn
     try:
-      chunk = client_data[turn_idnum]["connection"].recv(4096)
+      chunk = game.client_data[game.turn_idnum]["connection"].recv(4096)
     except:
-      remove_client(turn_idnum)
+      remove_client(game.turn_idnum)
       continue
-    logging.debug('data received from {}'.format(turn_idnum))
+    logging.debug('data received from {}'.format(game.turn_idnum))
 
-    # not chunk represents signal of disconnection from server
+    # not chunk represents disconnection
     if not chunk:
-
-      logging.debug('client {} disconnected'.format(client_data[turn_idnum]["address"]))
-      # note: client can return to viewing updates in connected; not same as quitting game
-      remove_client(turn_idnum)
-      #progress_turn()
+      logging.debug('client {} disconnected'.format(game.client_data[game.turn_idnum]["address"]))
+      remove_client(game.turn_idnum)
       continue
 
     # extends the buffer with the chunk
-    buffer.extend(chunk)
+    game.buffer.extend(chunk)
 
     #infinite loop for processing messages messages
     while True:
       #attempts to read and unpack a single message from the buffer array
-      msg, consumed = tiles.read_message_from_bytearray(buffer)
+      msg, consumed = tiles.read_message_from_bytearray(game.buffer)
       if not consumed:
         break
 
       #deletes everything before and including consumed:
-      buffer = buffer[consumed:]
+      game.buffer = game.buffer[consumed:]
 
       logging.debug('received message {}'.format(msg))
 
       # sent by the player to put a tile onto the board (all turns except second)
       if isinstance(msg, tiles.MessagePlaceTile):
-        if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
+        if game.board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
           process_msg(msg)
 
       # sent by the player in the second turn, to choose their token's starting path
       elif isinstance(msg, tiles.MessageMoveToken):
-        if not board.have_player_position(msg.idnum):
-          if board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
+        if not game.board.have_player_position(msg.idnum):
+          if game.board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
             process_msg(msg)
 
 
 def process_msg(msg):
   """detects whether message is place tile or place token and triggers game updates and progression"""
-  global client_data
-  global connected_idnums
-  global turn_log
-  global board
+  global game
+
+  # reset the timer variable if relevant
+  if AUTO_PLAY == True:
+    game.client_data[game.turn_idnum]["timed_play"] = False
+
   # sent by the player to put a tile onto the board (all turns except second)
   if isinstance(msg, tiles.MessagePlaceTile):
 
     # inform all clients of newly placed tile
-    for idnums in connected_idnums:
+    for idnums in game.connected_idnums:
       Message(idnums, msg.pack()).transmit()
-    turn_log.append(msg)
+    game.turn_log.append(msg)
     update_and_notify()
 
     #update prev_tile in case of play timeout next move
-    try:
-      client_data[turn_idnum]["prev_tile_x"] = msg.x
-      client_data[turn_idnum]["prev_tile_y"] = msg.y
-    except Exception:
-      logging.debug("Could not access msg.x or msg.y")
+    game.client_data[game.turn_idnum]["prev_tile_x"] = msg.x
+    game.client_data[game.turn_idnum]["prev_tile_y"] = msg.y
 
     # remove used tile from active player's hand
-    client_data[turn_idnum]["hand"].remove(msg.tileid)
+    game.client_data[game.turn_idnum]["hand"].remove(msg.tileid)
 
     # issue replacement tile to active player
     tileid = tiles.get_random_tileid()
-    Message(turn_idnum, tiles.MessageAddTileToHand(tileid).pack()).transmit()
+    Message(game.turn_idnum, tiles.MessageAddTileToHand(tileid).pack()).transmit()
 
     #update hand
-    client_data[turn_idnum]["hand"].append(tileid)
-    #print('tile {} added to {}s hand'.format(tileid, turn_idnum))
-    #print('{}s hand: {}'.format(turn_idnum, client_data[turn_idnum]["hand"]))
-
-
+    game.client_data[game.turn_idnum]["hand"].append(tileid)
 
     #update moves_played counter
-    client_data[turn_idnum]["moves_played"] += 1
+    game.client_data[game.turn_idnum]["moves_played"] += 1
     progress_turn()
 
   # sent by the player in the second turn, to choose their token's starting path
   elif isinstance(msg, tiles.MessageMoveToken):
     #inform all connected idnums of updated token positions
-    for idnums in connected_idnums:
+    for idnums in game.connected_idnums:
       Message(idnums, msg.pack()).transmit()
 
-    turn_log.append(msg)
+    game.turn_log.append(msg)
     update_and_notify()
-    client_data[turn_idnum]["moves_played"] += 1
+    game.client_data[game.turn_idnum]["moves_played"] += 1
     progress_turn()
 
 
 def update_and_notify():
   """updates board token positions and processes any consequent eliminations"""
-  global client_data
-  global board
-  global live_idnums
-  global eliminated
+  global game
 
-  #prev_eliminated = copy.deepcopy(eliminated)
-  positionupdates, eliminated = board.do_player_movement(live_idnums)
-
-  logging.debug('eliminated:{}'.format(eliminated))
+  # retrieve updated game data
+  positionupdates, game.eliminated = game.board.do_player_movement(game.live_idnums)
+  logging.debug('eliminated:{}'.format(game.eliminated))
 
   # notify all clients of new token positions on board
-  # n.b. this was previously after elimination check
   for msg in positionupdates:
-    turn_log.append(msg) # N.B. this has been moved up so updates only recorded once
-    for idnums in connected_idnums:
+    game.turn_log.append(msg)
+    for idnums in game.connected_idnums:
         Message(idnums, msg.pack()).transmit()
 
-  # procces eliminated players
-  # note: not the same process as a disconnection, as player remains in connected idnums
-  if len(eliminated) > 0:
-    # remove eliminated player from live_idnums and reset their game related variables
-    for elim in eliminated:
-        live_idnums.remove(elim)
-        client_data[elim]["hand"].clear
-        client_data[elim]["moves_played"] = 0
-        client_data[elim]["prev_tile_x"] = -1
-        client_data[elim]["prev_tile_y"] = -1
+  # Process eliminated players: different to disconnection, as player can remain observing
+  if len(game.eliminated) > 0:
+    # remove eliminated player from list of players, reset their game variables
+    for elim in game.eliminated:
+        game.live_idnums.remove(elim)
+        game.client_data[elim]["hand"].clear
+        game.client_data[elim]["moves_played"] = 0
+        game.client_data[elim]["prev_tile_x"] = -1
+        game.client_data[elim]["prev_tile_y"] = -1
         # inform connected idnums of elimination
-        for idnums in connected_idnums:
+        for idnums in game.connected_idnums:
           try:
             Message(idnums, tiles.MessagePlayerEliminated(elim).pack()).transmit()
           except:
@@ -423,59 +347,56 @@ def update_and_notify():
             continue
 
   # check if a player has won the game
-  if (len(live_idnums)) <= 1:
-    logging.debug('live_idnums: {}'.format(live_idnums))
-    logging.debug('connected_idnums: {}'.format(connected_idnums))
+  if (len(game.live_idnums)) <= 1:
+    logging.debug('live_idnums: {}'.format(game.live_idnums))
+    logging.debug('connected_idnums: {}'.format(game.connected_idnums))
     game_over()
 
 
 def progress_turn():
   #determine whos turn it is
   logging.debug("progress_turn called")
-  global TIMER_ACTIVE
-  global live_idnums
-  global turn_idnum
-  global chunk
+  global AUTO_PLAY
+  global game
 
   # depends on receiving accurate live_idnum list
-  if turn_idnum in live_idnums:
-    turn_idnum = live_idnums.pop(0)
-    live_idnums.append(turn_idnum)
-    turn_idnum = live_idnums[0]
+  if game.turn_idnum in game.live_idnums:
+    game.turn_idnum = game.live_idnums.pop(0)
+    game.live_idnums.append(game.turn_idnum)
+    game.turn_idnum = game.live_idnums[0]
   else:
-    turn_idnum = live_idnums[0]
+    game.turn_idnum = game.live_idnums[0]
 
 
-  logging.debug("turn_idnum before progression:{}".format(turn_idnum))
-  logging.debug("live_idnums:{}".format(live_idnums))
+  logging.debug("turn_idnum before progression:{}".format(game.turn_idnum))
+  logging.debug("live_idnums:{}".format(game.live_idnums))
 
   # Announce to every client it is this players turn
-  for idnums in connected_idnums:
-    Message(idnums, tiles.MessagePlayerTurn(turn_idnum).pack()).transmit()
+  for idnums in game.connected_idnums:
+    Message(idnums, tiles.MessagePlayerTurn(game.turn_idnum).pack()).transmit()
 
-  #initiate timer
-  #while timer thread is active, this thread moves on to....
-  if TIMER_ACTIVE == True:
+  #initiate play timeout timer
+  if AUTO_PLAY == True:
     threading.Thread(target=move_timer, daemon=True).start()
 
 
-# if a player doesnt make a valid move within TIMER_LIMIT seconds, the server makes a move for them
 def move_timer():
   """ Runs in new thread based on turn; Makes a valid move for the player after TIMER_LIMIT seconds """
   global TIME_LIMIT
-  global turn_idnum
-  tracked_idnum = turn_idnum
+  global game
+
+  tracked_idnum = game.turn_idnum
   time_start = time.perf_counter()
   run_timer = True
 
   while run_timer == True:
     # cancel timer if move is made
-    if tracked_idnum != turn_idnum:
-      logging.debug('move played!')
+    if tracked_idnum != game.turn_idnum:
+      logging.debug('Forced move timer cancelled')
       run_timer = False
     time_now = time.perf_counter()
     if (time_now-time_start)>TIME_LIMIT:
-      logging.debug('times up!')
+      logging.debug('Times up! Forcing move...')
       force_move()
       run_timer = False
 
@@ -483,82 +404,87 @@ def move_timer():
 def force_move():
   """Runs in move_timer thread based on turn; determines the move to be forced"""
   logging.debug('forced move starting')
-  global turn_idnum
-  global board
-  global turn_log
-  global client_data
+  global game
 
   random.seed(time.time())
-  check = False
+  #check = False
+  game.client_data[game.turn_idnum]["timed_play"] = True
   checkcount = 0
 
+  logging.debug("moves played:{}".format(game.client_data[game.turn_idnum]["moves_played"]))
+
   #loop for randomly determining next move
-  while check == False:
-    if game_in_progress == True:
-      if client_data[turn_idnum]["moves_played"] == 1:
-          #logging.debug('inside token loop')
-          x = client_data[turn_idnum]["prev_tile_x"]
-          y = client_data[turn_idnum]["prev_tile_y"]
+  #while check == False:
+  while game.client_data[game.turn_idnum]["timed_play"] == True:
+    if game.game_in_progress == True:
+      if game.client_data[game.turn_idnum]["moves_played"] == 1:
+          x = game.client_data[game.turn_idnum]["prev_tile_x"]
+          y = game.client_data[game.turn_idnum]["prev_tile_y"]
           position = random.randrange(0, 8)
           checkcount += 1
-          check = board.set_player_start_position(turn_idnum, x, y, position)
+          # if valid move found, stop timer
+          if game.board.set_player_start_position(game.turn_idnum, x, y, position) == True:
+            game.client_data[game.turn_idnum]["timed_play"] = False
           random.seed(time.time())
       else:
-          #logging.debug('inside tile loop')
           x = random.randrange(0, 5)
           y = random.randrange(0, 5)
-          tileid = client_data[turn_idnum]["hand"][random.randrange(0,4)]
+          tileid = game.client_data[game.turn_idnum]["hand"][random.randrange(0,4)]
           rotation = random.randrange(0, 4)
           checkcount += 1
-          check = board.set_tile(x, y, tileid, rotation, turn_idnum)
+          # if valid move found, stop timer
+          if game.board.set_tile(x, y, tileid, rotation, game.turn_idnum) == True:
+            game.client_data[game.turn_idnum]["timed_play"] = False
     else:
-      #stop if game is over
+      #stop loop if game is over
       check = False
 
-  if game_in_progress == True:
+  # final check if the game is still going and move hasnt been made
+  if game.game_in_progress == True:
     logging.debug('move has been forced')
-    # logging.debug('checkcount = {}'.format(checkcount))
-    if client_data[turn_idnum]["moves_played"] == 1:
-      msg = tiles.MessageMoveToken(turn_idnum, x, y, position)
+    if game.client_data[game.turn_idnum]["moves_played"] == 1:
+      msg = tiles.MessageMoveToken(game.turn_idnum, x, y, position)
     else:
-      msg = tiles.MessagePlaceTile(turn_idnum, tileid, rotation, x, y)
+      msg = tiles.MessagePlaceTile(game.turn_idnum, tileid, rotation, x, y)
     process_msg(msg)
 
 
+
 def game_over():
+  """Resets game state on finish and initiates new round if applicable"""
   print('GAME OVER')
-  # reset all global variables related to game
   reset_game_state()
   if AUTO_RESTART == True:
-    time.sleep(3)
+    time.sleep(RESTART_WAIT)
     check_start_conditions()
 
 
 def reset_game_state():
-  """Resets global game variables and enables new game to start"""
-  global live_idnums
-  global board
-  global turn_idnum
-  global game_in_progress
-  global turn_log
+  """Resets game state variables and enables new game to start"""
+  global game
 
   #clear game records from any players in previous game
-  for idnums in game_start_idnums:
-    if idnums in connected_idnums:
-      client_data[idnums]["hand"].clear()
-      client_data[idnums]["moves_played"] = 0
-      client_data[idnums]["prev_tile_x"] = -1
-      client_data[idnums]["prev_tile_y"] = -1
+  for idnums in game.game_start_idnums:
+    if idnums in game.connected_idnums:
+      game.client_data[idnums]["hand"].clear()
+      game.client_data[idnums]["moves_played"] = 0
+      game.client_data[idnums]["prev_tile_x"] = -1
+      game.client_data[idnums]["prev_tile_y"] = -1
 
-  live_idnums.clear()
-  turn_log.clear()
-  turn_idnum = 0
-  board.reset()
-  game_in_progress = False
+  game.live_idnums.clear()
+  game.turn_log.clear()
+  game.turn_idnum = 0
+  game.board.reset()
+  game.game_in_progress = False
 
 
+# Enable this option for extra commentry
+logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
+
+# Set up Server
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_address = ('localhost', 30020)
 sock.bind(server_address)
 threading.Thread(target=listen).start()
+game = Game_State()
 check_start_conditions()
