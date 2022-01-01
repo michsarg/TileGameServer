@@ -1,4 +1,6 @@
-# CITS3002 Networking: Game Server Project 2021
+# CITS3002 Networking: Game Server Project 2021 S1
+
+---
 
 ## Description of Modules
 
@@ -13,11 +15,12 @@ This module implements  a  basic  server  that  allows  a  single  client  to  p
 ### tiles.py:
 This module defines essential constants and gameplay logic, which is shared by both the client and the server. It contains game logic and constants and must not be edited!
 
+---
 
 ## Marking Tiers
 
 ### 1) Enable Multiple Players
-* implement basic server that can play a single game wiht two players
+* implement basic server that can play a single game with two players
 * trust they will only play valid cards on valid locations
 * players can send msgs when its not their turn
 * all connections need to be gast and stable
@@ -32,7 +35,7 @@ This module defines essential constants and gameplay logic, which is shared by b
 ### 3) Connection Issues
 * server must be able to handle unexpected network behaviour
     * if a player exits durng game they should be eliminated then next player turn starts or if one left then they win
-    * server shoudl handle players attempting to join during the game by giving them updates but not letting them play turns
+    * server should handle players attempting to join during the game by giving them updates but not letting them play turns
 
 ### 4) Player issues
 * make experience nicer for players that join partway through an existing game by helping them to catch up on the game state
