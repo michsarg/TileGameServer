@@ -23,7 +23,7 @@ This module defines essential constants and gameplay logic, which is shared by b
 * implement basic server that can play a single game with two players
 * trust they will only play valid cards on valid locations
 * players can send msgs when its not their turn
-* all connections need to be gast and stable
+* all connections need to be fast and stable
 
 ### 2) Scaling Up
 * extend server so when a game finishes a new one autostarts with enough players
